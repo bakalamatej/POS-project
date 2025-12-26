@@ -30,7 +30,7 @@ void draw_world(Walker walker) {
 
 void display_summary(const World* world) {
 
-    printf("Priemerny pocet krokov:\n");
+    printf("Average number of steps:\n");
     for (int i = 0; i < WORLD_SIZE; i++) {
         for (int j = 0; j < WORLD_SIZE; j++) {
             printf("%3d ", world->total_steps[i][j]);
@@ -38,7 +38,7 @@ void display_summary(const World* world) {
         printf("\n");
     }
 
-    printf("\nPravdepodobnost dosiahnutia stredu:\n");
+    printf("\nProbability of reaching the center:\n");
     for (int i = 0; i < WORLD_SIZE; i++) {
         for (int j = 0; j < WORLD_SIZE; j++) {
             printf("%3d%% ",
