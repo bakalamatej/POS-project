@@ -1,8 +1,14 @@
 #ifndef WALKER_H
 #define WALKER_H
 
-#include "world.h"
+typedef struct Walker {
+    int x;
+    int y;
+} Walker;
 
-void random_walk(Walker* walker);
+struct SharedState;          
+
+void walker_init(Walker *w, int x, int y);
+void random_walk(struct SharedState *S, Walker* w);
 
 #endif

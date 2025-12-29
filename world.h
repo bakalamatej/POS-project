@@ -1,21 +1,14 @@
 #ifndef WORLD_H
 #define WORLD_H
 
-#define WORLD_SIZE 10
-#define REPLICATIONS 1000
+struct SharedState;   
+struct Walker;        
 
-typedef struct {
-    int x;
-    int y;
-} Walker;
+void allocate_world(struct SharedState *S);
+void free_world(struct SharedState *S);
 
-typedef struct {
-    int total_steps[WORLD_SIZE][WORLD_SIZE];
-    int success_count[WORLD_SIZE][WORLD_SIZE];
-} World;
-
-void initialize_world(World* world);
-void draw_world(Walker walker);
-void display_summary(const World* world);
+void initialize_world(struct SharedState *S);
+void draw_world(struct SharedState *S);
+void display_summary(struct SharedState *S);
 
 #endif

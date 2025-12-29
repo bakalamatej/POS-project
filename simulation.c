@@ -1,42 +1,92 @@
+#define _POSIX_C_SOURCE 200809L
+#include <unistd.h>
+#include <time.h>
 #include "simulation.h"
 #include "walker.h"
 
-int simulate_from(Walker start, int max_steps) {
-    Walker walker = start;
+static int simulate_from(SharedState *S, Walker start)
+{
+    Walker w = start;
 
-    for (int step = 0; step < max_steps; step++) {
+    for (int s = 0; s < S->max_steps; s++) {
 
-        if (walker.x == WORLD_SIZE/2 && walker.y == WORLD_SIZE/2)
-            return step;
+        if (w.x == S->world_size/2 && w.y == S->world_size/2)
+            return s;
 
-        random_walk(&walker);
+        random_walk(S, &w);
     }
-
     return -1;
 }
 
-void run_simulation(World* world, int max_steps) {
+void* simulation_thread(void *arg)
+{
+    SharedState *S = arg;
 
-    for (int i = 0; i < WORLD_SIZE; i++) {
-        for (int j = 0; j < WORLD_SIZE; j++) {
+    for (int r = 0; r < S->replications; r++) {
 
-            Walker start = { i, j };
-            int successful_reps = 0;
-            int step_sum = 0;
+        pthread_mutex_lock(&S->lock);
+        S->current_rep = r + 1;
+        pthread_mutex_unlock(&S->lock);
 
-            for (int rep = 0; rep < REPLICATIONS; rep++) {
-                int steps = simulate_from(start, max_steps);
+        for (int y = 0; y < S->world_size; y++) {
+            for (int x = 0; x < S->world_size; x++) {
+
+                Walker start = { x, y };
+                int steps = simulate_from(S, start);
+
+                pthread_mutex_lock(&S->lock);
 
                 if (steps != -1) {
-                    successful_reps++;
-                    step_sum += steps;
+                    S->success_count[y][x]++;
+                    S->total_steps[y][x] += steps;
                 }
+
+                pthread_mutex_unlock(&S->lock);
             }
-
-            world->total_steps[i][j] =
-                successful_reps > 0 ? step_sum / successful_reps : 0;
-
-            world->success_count[i][j] = successful_reps;
         }
+    }
+
+    pthread_mutex_lock(&S->lock);
+    S->finished = true;
+    pthread_mutex_unlock(&S->lock);
+
+    return NULL;
+}
+
+void* walker_thread(void *arg)
+{
+    SharedState *S = arg;
+
+    int steps = 0;
+
+    struct timespec last, now;
+    clock_gettime(CLOCK_MONOTONIC, &last);
+
+    while (1) {
+
+        pthread_mutex_lock(&S->lock);
+        bool quit = S->quit;
+        int max = S->max_steps;
+        pthread_mutex_unlock(&S->lock);
+
+        if (quit) return NULL;
+        if (steps >= max) return NULL;
+
+        clock_gettime(CLOCK_MONOTONIC, &now);
+
+        long ms = (now.tv_sec - last.tv_sec)*1000 +
+                  (now.tv_nsec - last.tv_nsec)/1000000;
+
+        if (ms >= 300) {
+
+            pthread_mutex_lock(&S->lock);
+            random_walk(S, &S->walker);
+            pthread_mutex_unlock(&S->lock);
+
+            last = now;
+            steps++;
+        }
+
+        usleep(1000);
     }
 }
