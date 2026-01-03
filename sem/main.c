@@ -139,7 +139,7 @@ int main()
     pthread_create(&sim, NULL, simulation_thread, &S);
     pthread_create(&walk, NULL, walker_thread, &S);
 
-    printf("\nControls:\n1 interactive\n2 summary\nq quit\n\n");
+    printf("\nControls:\n1 - interactive mode\n2 - summary mode\nq - quit\n\n");
 
     init_input();
 
@@ -155,9 +155,9 @@ int main()
 
        
 
-        printf("[1] - interaktívny režim\n");
-        printf("[2] - sumárny režim\n");
-        printf("[ESC] - ukončiť simuláciu\n");
+        printf("[1] - interactive mode\n");
+        printf("[2] - summary mode\n");
+        printf("[ESC] - quit simulation\n");
 
         usleep(100000);
 

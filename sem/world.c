@@ -133,11 +133,14 @@ void display_summary(SharedState *S)
 
     for (int y = 0; y < S->world_size; y++) {
         for (int x = 0; x < S->world_size; x++) {
-            if (S->success_count[y][x] > 0)
+            if (S->use_obstacles && S->obstacles[y][x]) {
+                printf(" ###");
+            } else if (S->success_count[y][x] > 0) {
                 printf("%3d ",
                     S->total_steps[y][x] / S->success_count[y][x]);
-            else
+            } else {
                 printf(" -- ");
+            }
         }
         printf("\n");
     }
@@ -146,9 +149,17 @@ void display_summary(SharedState *S)
 
     for (int y = 0; y < S->world_size; y++) {
         for (int x = 0; x < S->world_size; x++) {
-            printf("%3d%% ", 
-                (S->success_count[y][x] * 100) / S->replications);
+            if (S->use_obstacles && S->obstacles[y][x]) {
+                printf(" ###");
+            } else {
+                printf("%3d%% ", 
+                    (S->success_count[y][x] * 100) / S->replications);
+            }
         }
         printf("\n");
+    }
+
+    if (S->use_obstacles) {
+        printf("\nLegend: ### obstacle / impassable cell\n");
     }
 }
