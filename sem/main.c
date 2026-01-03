@@ -34,8 +34,24 @@ int main()
 
     SharedState S;
 
-    printf("World size: ");
-    scanf("%d", &S.world_size);
+    printf("Use obstacles? (1 yes / 0 no): ");
+    int use_obs;
+    scanf("%d", &use_obs);
+    S.use_obstacles = (use_obs == 1);
+
+    if (S.use_obstacles) {
+        int size_from_file = get_world_size_from_obstacles("obstacles.txt");
+        if (size_from_file > 0) {
+            S.world_size = size_from_file;
+            printf("World size loaded from obstacles.txt: %d\n", S.world_size);
+        } else {
+            printf("Error: Could not load obstacles.txt. Exiting.\n");
+            return 1;
+        }
+    } else {
+        printf("World size: ");
+        scanf("%d", &S.world_size);
+    }
 
     printf("Number of replications: ");
     scanf("%d", &S.replications);
@@ -103,6 +119,14 @@ int main()
     allocate_world(&S);
     initialize_world(&S);
 
+    if (S.use_obstacles) {
+        if (!load_obstacles(&S, "obstacles.txt")) {
+            printf("Failed to load obstacles. Exiting.\n");
+            free_world(&S);
+            return 1;
+        }
+    }
+
     S.current_rep = 0;
     S.finished = false;
     S.quit = false;
@@ -120,7 +144,6 @@ int main()
     init_input();
 
     while (1) {
-
         pthread_mutex_lock(&S.lock);
         int mode = S.mode;
         pthread_mutex_unlock(&S.lock);
@@ -130,12 +153,18 @@ int main()
         else
             display_summary(&S);
 
+       
+
+        printf("[1] - interaktívny režim\n");
+        printf("[2] - sumárny režim\n");
+        printf("[ESC] - ukončiť simuláciu\n");
+
         usleep(100000);
 
         int c = getchar();
         if (c == '1') S.mode = 1;
         if (c == '2') S.mode = 2;
-        if (c == 'q') break;
+        if (c == 27) break; 
     }
 
     restore_input();
