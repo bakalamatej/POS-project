@@ -25,6 +25,10 @@ void* simulation_thread(void *arg)
     for (int r = 0; r < S->replications; r++) {
 
         pthread_mutex_lock(&S->lock);
+        if (S->quit) {
+            pthread_mutex_unlock(&S->lock);
+            return NULL;
+        }
         S->current_rep = r + 1;
         pthread_mutex_unlock(&S->lock);
 
@@ -35,6 +39,11 @@ void* simulation_thread(void *arg)
                 int steps = simulate_from(S, start);
 
                 pthread_mutex_lock(&S->lock);
+
+                if (S->quit) {
+                    pthread_mutex_unlock(&S->lock);
+                    return NULL;
+                }
 
                 if (steps != -1) {
                     S->success_count[y][x]++;

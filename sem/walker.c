@@ -16,12 +16,20 @@ void random_walk(SharedState *S, Walker* w)
 
     double r = (double)rand() / RAND_MAX;
 
+    int new_x = w->x;
+    int new_y = w->y;
+
     if (r < p_up)
-        w->y = (w->y - 1 + S->world_size) % S->world_size;
+        new_y = (w->y - 1 + S->world_size) % S->world_size;
     else if (r < p_down)
-        w->y = (w->y + 1) % S->world_size;
+        new_y = (w->y + 1) % S->world_size;
     else if (r < p_left)
-        w->x = (w->x - 1 + S->world_size) % S->world_size;
+        new_x = (w->x - 1 + S->world_size) % S->world_size;
     else
-        w->x = (w->x + 1) % S->world_size;
+        new_x = (w->x + 1) % S->world_size;
+
+    if (!S->use_obstacles || S->obstacles[new_y][new_x] == 0) {
+        w->x = new_x;
+        w->y = new_y;
+    }
 }

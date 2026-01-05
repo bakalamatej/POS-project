@@ -24,6 +24,9 @@ typedef struct SharedState {
 
     int **total_steps;
     int **success_count;
+    
+    bool use_obstacles;
+    int **obstacles;  // 1 = obstacle, 0 = free
 
     Walker walker;
 
