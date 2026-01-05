@@ -3,8 +3,6 @@
 #include "simulation.h"
 #include "world.h"
 
-#define CLEAR_SCREEN() printf("\033[H\033[J")
-
 void allocate_world(SharedState *S)
 {
     S->total_steps = malloc(S->world_size * sizeof(int*));
@@ -37,7 +35,7 @@ void initialize_world(SharedState *S)
 
 void draw_world(SharedState *S)
 {
-    CLEAR_SCREEN();
+    MOVE_CURSOR();
 
     for (int i = 0; i < S->world_size; i++) {
         for (int j = 0; j < S->world_size; j++) {
@@ -51,11 +49,12 @@ void draw_world(SharedState *S)
         }
         printf("\n");
     }
+    fflush(stdout);
 }
 
 void display_summary(SharedState *S)
 {
-    CLEAR_SCREEN();
+    MOVE_CURSOR();
 
     printf("Replication %d / %d\n\n",
            S->current_rep, S->replications);
@@ -82,4 +81,5 @@ void display_summary(SharedState *S)
         }
         printf("\n");
     }
+    fflush(stdout);
 }

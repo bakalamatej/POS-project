@@ -119,22 +119,30 @@ int main()
 
     init_input();
 
+    CLEAR_SCREEN();
+
     while (1) {
 
         pthread_mutex_lock(&S.lock);
         int mode = S.mode;
         pthread_mutex_unlock(&S.lock);
 
-        if (mode == 1)
+        if (mode == 1) 
             draw_world(&S);
-        else
+        else 
             display_summary(&S);
 
         usleep(100000);
 
         int c = getchar();
-        if (c == '1') S.mode = 1;
-        if (c == '2') S.mode = 2;
+        if (c == '1') {
+            S.mode = 1;
+            CLEAR_SCREEN();
+        }
+        if (c == '2') {
+            S.mode = 2;
+            CLEAR_SCREEN();
+        }
         if (c == 'q') break;
     }
 

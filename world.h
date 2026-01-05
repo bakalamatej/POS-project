@@ -1,6 +1,9 @@
 #ifndef WORLD_H
 #define WORLD_H
 
+#define CLEAR_SCREEN() printf("\033[2J\033[H")
+#define MOVE_CURSOR() printf("\033[H")
+
 struct SharedState;   
 struct Walker;        
 
