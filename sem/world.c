@@ -106,11 +106,10 @@ void draw_world(SharedState *S)
 
     for (int i = 0; i < S->world_size; i++) {
         for (int j = 0; j < S->world_size; j++) {
-
-            if (i == S->world_size/2 && j == S->world_size/2)
-                printf("C ");
-            else if (i == S->walker.y && j == S->walker.x)
+            if (i == S->walker.y && j == S->walker.x)
                 printf("W ");
+            else if (i == S->world_size/2 && j == S->world_size/2)
+                printf("* ");
             else if (S->use_obstacles && S->obstacles[i][j] == 1)
                 printf("# ");
             else
