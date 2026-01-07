@@ -20,10 +20,14 @@ static volatile sig_atomic_t stop_flag = 0;
 static struct termios orig_termios;
 static bool termios_saved = false;
 
+// Forward declaration
+static void disable_raw_mode(void);
+
 static void handle_sigint(int sig)
 {
     (void)sig;
     stop_flag = 1;
+    disable_raw_mode();  // Obnov terminál pri Ctrl+C
 }
 
 static void disable_raw_mode(void)
@@ -40,6 +44,7 @@ static void enable_raw_mode(void)
         return;
     }
     termios_saved = true;
+    atexit(disable_raw_mode);  // Zabezpeč cleanup pri exit()
 
     struct termios raw = orig_termios;
     raw.c_lflag &= ~(ICANON | ECHO);
@@ -49,12 +54,117 @@ static void enable_raw_mode(void)
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
+typedef struct SimParams {
+    int world_size;
+    int replications;
+    int max_steps;
+    double prob_up;
+    double prob_down;
+    double prob_left;
+    double prob_right;
+    char obstacles_file[256];
+    char output_file[256];
+    int use_obstacles_file;
+} SimParams;
+
 typedef struct ClientCtx {
     int sock_fd;
     IPCShared *ipc;
     int summary_view;          // Lokálny summary_view pre tohto klienta
     pthread_mutex_t view_lock; // Lock pre summary_view
 } ClientCtx;
+
+static int get_simulation_params(SimParams *params)
+{
+    if (!params) return -1;
+    
+    // Dočasne vypni raw mode pre zadávanie parametrov
+    disable_raw_mode();
+    
+    printf("\n=== Vytvorenie novej simulácie ===\n\n");
+    
+    // Typ sveta
+    printf("Použiť súbor s prekážkami? (1=áno, 0=nie): ");
+    if (scanf("%d", &params->use_obstacles_file) != 1) {
+        enable_raw_mode();
+        return -1;
+    }
+    
+    if (params->use_obstacles_file) {
+        strcpy(params->obstacles_file, "obstacles.txt");
+        params->world_size = 0; // Veľkosť sa načíta zo súboru
+    } else {
+        printf("Rozmery sveta (napr. 10): ");
+        if (scanf("%d", &params->world_size) != 1 || params->world_size <= 0) {
+            printf("Chyba: Neplatné rozmery sveta.\n");
+            enable_raw_mode();
+            return -1;
+        }
+        params->obstacles_file[0] = '\0';
+    }
+    
+    // Počet replikácií
+    printf("Počet replikácií (napr. 1000000): ");
+    if (scanf("%d", &params->replications) != 1 || params->replications <= 0) {
+        printf("Chyba: Neplatný počet replikácií.\n");
+        enable_raw_mode();
+        return -1;
+    }
+    
+    // Maximálny počet krokov K
+    printf("Maximálny počet krokov K (napr. 100): ");
+    if (scanf("%d", &params->max_steps) != 1 || params->max_steps <= 0) {
+        printf("Chyba: Neplatný počet krokov.\n");
+        enable_raw_mode();
+        return -1;
+    }
+    
+    // Pravdepodobnosti
+    printf("Pravdepodobnosti pohybu (4 čísla, súčet = 1.0):\n");
+    printf("  Hore: ");
+    if (scanf("%lf", &params->prob_up) != 1) {
+        enable_raw_mode();
+        return -1;
+    }
+    printf("  Dole: ");
+    if (scanf("%lf", &params->prob_down) != 1) {
+        enable_raw_mode();
+        return -1;
+    }
+    printf("  Vľavo: ");
+    if (scanf("%lf", &params->prob_left) != 1) {
+        enable_raw_mode();
+        return -1;
+    }
+    printf("  Vpravo: ");
+    if (scanf("%lf", &params->prob_right) != 1) {
+        enable_raw_mode();
+        return -1;
+    }
+    
+    // Validácia pravdepodobností
+    double sum = params->prob_up + params->prob_down + params->prob_left + params->prob_right;
+    if (sum < 0.99 || sum > 1.01) {
+        printf("Chyba: Súčet pravdepodobností musí byť 1.0 (aktuálne: %.2f)\n", sum);
+        enable_raw_mode();
+        return -1;
+    }
+    
+    // Výstupný súbor
+    printf("Názov výstupného súboru (napr. results.txt): ");
+    if (scanf("%255s", params->output_file) != 1) {
+        enable_raw_mode();
+        return -1;
+    }
+    
+    // Vypni buffer
+    while (getchar() != '\n');
+    
+    // Zapni raw mode späť
+    enable_raw_mode();
+    
+    return 0;
+}
 
 static void send_cmd(int fd, const char *cmd)
 {
@@ -69,10 +179,34 @@ static void *render_thread(void *arg)
         IPCShared *ipc = ctx->ipc;
         if (!ipc) break;
 
-        CLEAR_SCREEN();
-        int n = ipc->world_size;
+        // Lokálne kopírovanie IPC dát (fix race condition)
+        int world_size = ipc->world_size;
+        int walker_x = ipc->walker_x;
+        int walker_y = ipc->walker_y;
+        int mode = ipc->mode;
+        int current_rep = ipc->current_rep;
+        int replications = ipc->replications;
+        int finished = ipc->finished;
+        int quit = ipc->quit;
+        
+        // Skopíruj obstacles a štatistiky
+        int n = world_size;
         if (n <= 0) n = 1;
         if (n > IPC_MAX_WORLD) n = IPC_MAX_WORLD;
+        
+        int local_obstacles[IPC_MAX_WORLD][IPC_MAX_WORLD];
+        int local_total_steps[IPC_MAX_WORLD][IPC_MAX_WORLD];
+        int local_success_count[IPC_MAX_WORLD][IPC_MAX_WORLD];
+        
+        for (int y = 0; y < n; y++) {
+            for (int x = 0; x < n; x++) {
+                local_obstacles[y][x] = ipc->obstacles[y][x];
+                local_total_steps[y][x] = ipc->total_steps[y][x];
+                local_success_count[y][x] = ipc->success_count[y][x];
+            }
+        }
+
+        CLEAR_SCREEN();
 
         // Získaj lokálny summary_view
         pthread_mutex_lock(&ctx->view_lock);
@@ -81,20 +215,20 @@ static void *render_thread(void *arg)
 
         printf("=== RANDOM WALKER (CLIENT) ===\n");
         printf("Mode: %s | Summary view: %s\n",
-               (ipc->mode == 1) ? "interactive" : "summary",
+               (mode == 1) ? "interactive" : "summary",
                (local_view == 0) ? "average steps" : "probability");
-        printf("Replication %d / %d\n", ipc->current_rep, ipc->replications);
+        printf("Replication %d / %d\n", current_rep, replications);
         printf("Finished: %s | Quit: %s\n",
-               ipc->finished ? "yes" : "no",
-               ipc->quit ? "yes" : "no");
+               finished ? "yes" : "no",
+               quit ? "yes" : "no");
 
-        if (ipc->mode == 1) {
+        if (mode == 1) {
             printf("\nInteractive view (W=walker, *=center, #=obstacle)\n");
             for (int y = 0; y < n; y++) {
                 for (int x = 0; x < n; x++) {
-                    if (ipc->obstacles[y][x]) {
+                    if (local_obstacles[y][x]) {
                         printf("# ");
-                    } else if (y == ipc->walker_y && x == ipc->walker_x) {
+                    } else if (y == walker_y && x == walker_x) {
                         printf("W ");
                     } else if (y == n/2 && x == n/2) {
                         printf("* ");
@@ -109,10 +243,10 @@ static void *render_thread(void *arg)
                 printf("\nAverage steps to reach center:\n");
                 for (int y = 0; y < n; y++) {
                     for (int x = 0; x < n; x++) {
-                        if (ipc->obstacles[y][x]) {
+                        if (local_obstacles[y][x]) {
                             printf(" ###");
-                        } else if (ipc->success_count[y][x] > 0) {
-                            int avg = ipc->total_steps[y][x] / ipc->success_count[y][x];
+                        } else if (local_success_count[y][x] > 0) {
+                            int avg = local_total_steps[y][x] / local_success_count[y][x];
                             printf("%4d", avg);
                         } else {
                             printf("  --");
@@ -122,13 +256,13 @@ static void *render_thread(void *arg)
                 }
             } else {
                 printf("\nProbability of reaching center (%%):\n");
-                int denom = ipc->replications > 0 ? ipc->replications : 1;
+                int denom = replications > 0 ? replications : 1;
                 for (int y = 0; y < n; y++) {
                     for (int x = 0; x < n; x++) {
-                        if (ipc->obstacles[y][x]) {
+                        if (local_obstacles[y][x]) {
                             printf(" ###");
                         } else {
-                            int prob = (ipc->success_count[y][x] * 100) / denom;
+                            int prob = (local_success_count[y][x] * 100) / denom;
                             printf("%4d", prob);
                         }
                     }
@@ -137,14 +271,14 @@ static void *render_thread(void *arg)
             }
         }
 
-        if (ipc->world_size > IPC_MAX_WORLD) {
+        if (world_size > IPC_MAX_WORLD) {
             printf("\nPoznámka: zobrazuje sa len prvých %d x %d buniek (IPC limit).\n", IPC_MAX_WORLD, IPC_MAX_WORLD);
         }
 
         printf("\nOvládanie: 1=interaktívny, 2=sumárny, p=prepni summary view, q=odpojiť\n");
 
         // Automatické odpojenie po dokončení simulácie
-        if (ipc->finished) {
+        if (finished) {
             printf("\n[Klient] Simulácia dokončená. Odpájam sa...\n");
             sleep(2);
             stop_flag = 1;
@@ -182,10 +316,31 @@ static void *input_thread(void *arg)
     return NULL;
 }
 
-static int start_server_process(void)
+static int start_server_process(const SimParams *params)
 {
-    // Spustí server na pozadí; predpokladá, že binárka sa volá "server" v aktuálnom adresári.
-    int rc = system("./server >/dev/null 2>&1 &");
+    if (!params) return -1;
+    
+    char cmd[1024];
+    int n = snprintf(cmd, sizeof(cmd), "./server -r %d -k %d -p %.3f %.3f %.3f %.3f -o %s",
+                     params->replications,
+                     params->max_steps,
+                     params->prob_up,
+                     params->prob_down,
+                     params->prob_left,
+                     params->prob_right,
+                     params->output_file);
+    
+    if (params->use_obstacles_file) {
+        n += snprintf(cmd + n, sizeof(cmd) - n, " -f %s", params->obstacles_file);
+    } else {
+        n += snprintf(cmd + n, sizeof(cmd) - n, " -s %d", params->world_size);
+    }
+    
+    // Pridaj presmerovanie a background
+    snprintf(cmd + n, sizeof(cmd) - n, " >/dev/null 2>&1 &");
+    
+    printf("Spúšťam server s parametrami...\n");
+    int rc = system(cmd);
     return (rc == -1) ? -1 : 0;
 }
 
@@ -245,9 +400,16 @@ int client_run(void)
         }
 
         if (choice == '1') {
-            printf("\nSpúšťam server...\n");
-            if (start_server_process() != 0) {
-                printf("Nepodarilo sa spustiť server.\n");
+            SimParams params;
+            if (get_simulation_params(&params) != 0) {
+                printf("\nChyba pri zadávaní parametrov. Stlač ľubovoľnú klávesu...\n");
+                getchar();
+                continue;
+            }
+            
+            printf("\nVytvárám novú simuláciu...\n");
+            if (start_server_process(&params) != 0) {
+                printf("Chyba: Nepodarilo sa spustiť server.\n");
                 sleep(2);
                 continue;
             }

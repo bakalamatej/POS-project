@@ -169,29 +169,36 @@ static void *socket_thread(void *arg)
     return NULL;
 }
 
-int server_run(void)
+int server_run(const ServerConfig *config)
 {
+    if (!config) return 1;
+    
     srand(time(NULL));
 
     SharedState S;
     memset(&S, 0, sizeof(S));
 
-    const int default_world_size = 10;
-    const int default_replications = 1000000;
-    const int default_max_steps = 100;
-
-    int size_from_file = get_world_size_from_obstacles("obstacles.txt");
-    if (size_from_file > 0) {
-        S.use_obstacles = true;
-        S.world_size = size_from_file;
+    // Použiť konfiguráciu z parametrov
+    if (config->obstacles_file[0] != '\0') {
+        int size_from_file = get_world_size_from_obstacles(config->obstacles_file);
+        if (size_from_file > 0) {
+            S.use_obstacles = true;
+            S.world_size = size_from_file;
+        } else {
+            printf("Chyba: Nepodarilo sa načítať súbor s prekážkami '%s'.\n", config->obstacles_file);
+            return 1;
+        }
     } else {
         S.use_obstacles = false;
-        S.world_size = default_world_size;
+        S.world_size = config->world_size;
     }
 
-    S.replications = default_replications;
-    S.max_steps = default_max_steps;
-    S.prob.up = S.prob.down = S.prob.left = S.prob.right = 0.25;
+    S.replications = config->replications;
+    S.max_steps = config->max_steps;
+    S.prob.up = config->prob_up;
+    S.prob.down = config->prob_down;
+    S.prob.left = config->prob_left;
+    S.prob.right = config->prob_right;
     S.mode = 1;
     S.summary_view = 0;
     S.finished = false;
@@ -201,7 +208,9 @@ int server_run(void)
     printf("  world_size = %d\n", S.world_size);
     printf("  replications = %d\n", S.replications);
     printf("  max_steps = %d\n", S.max_steps);
-    printf("  obstacles = %s\n", S.use_obstacles ? "obstacles.txt" : "none");
+    printf("  probabilities = %.2f/%.2f/%.2f/%.2f\n", S.prob.up, S.prob.down, S.prob.left, S.prob.right);
+    printf("  obstacles = %s\n", S.use_obstacles ? config->obstacles_file : "none");
+    printf("  output = %s\n", config->output_file[0] ? config->output_file : "(none)");
 
     IPCShared *ipc = NULL;
     if (ipc_create_shared(SHM_NAME, &ipc) != 0) {
@@ -214,7 +223,7 @@ int server_run(void)
     initialize_world(&S);
 
     if (S.use_obstacles) {
-        if (!load_obstacles(&S, "obstacles.txt")) {
+        if (!load_obstacles(&S, config->obstacles_file)) {
             printf("Failed to load obstacles. Exiting.\n");
             free_world(&S);
             ipc_close_shared(ipc);
