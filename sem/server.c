@@ -121,18 +121,12 @@ static void *client_handler_thread(void *arg)
             update_ipc_basic(S);
             pthread_mutex_unlock(&S->lock);
             send_str(fd, "OK\n");
-        } else if (strncmp(buf, "QUIT", 4) == 0) {
-            pthread_mutex_lock(&S->lock);
-            S->quit = true;
-            update_ipc_basic(S);
-            pthread_mutex_unlock(&S->lock);
-            send_str(fd, "OK\n");
-            break;
         } else {
             send_str(fd, "ERR\n");
         }
     }
 
+    printf("[Server] Klient sa odpojil.\n");
     ipc_close_socket(fd);
     free(ctx);
     return NULL;

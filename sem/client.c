@@ -10,6 +10,7 @@
 
 #include "client.h"
 #include "ipc.h"
+#include "world.h"
 
 static const char *SHM_NAME = "/pos_shm";
 static const char *SOCK_PATH = "/tmp/pos_socket";
@@ -25,6 +26,8 @@ static void handle_sigint(int sig)
 typedef struct ClientCtx {
     int sock_fd;
     IPCShared *ipc;
+    int summary_view;          // Lokálny summary_view pre tohto klienta
+    pthread_mutex_t view_lock; // Lock pre summary_view
 } ClientCtx;
 
 static void send_cmd(int fd, const char *cmd)
@@ -40,15 +43,20 @@ static void *render_thread(void *arg)
         IPCShared *ipc = ctx->ipc;
         if (!ipc) break;
 
-        printf("\033[2J\033[H");
+        CLEAR_SCREEN();
         int n = ipc->world_size;
         if (n <= 0) n = 1;
         if (n > IPC_MAX_WORLD) n = IPC_MAX_WORLD;
 
+        // Získaj lokálny summary_view
+        pthread_mutex_lock(&ctx->view_lock);
+        int local_view = ctx->summary_view;
+        pthread_mutex_unlock(&ctx->view_lock);
+
         printf("=== RANDOM WALKER (CLIENT) ===\n");
         printf("Mode: %s | Summary view: %s\n",
                (ipc->mode == 1) ? "interactive" : "summary",
-               (ipc->summary_view == 0) ? "average steps" : "probability");
+               (local_view == 0) ? "average steps" : "probability");
         printf("Replication %d / %d\n", ipc->current_rep, ipc->replications);
         printf("Finished: %s | Quit: %s\n",
                ipc->finished ? "yes" : "no",
@@ -71,7 +79,7 @@ static void *render_thread(void *arg)
                 printf("\n");
             }
         } else {
-            if (ipc->summary_view == 0) {
+            if (local_view == 0) {
                 printf("\nAverage steps to reach center:\n");
                 for (int y = 0; y < n; y++) {
                     for (int x = 0; x < n; x++) {
@@ -107,9 +115,12 @@ static void *render_thread(void *arg)
             printf("\nPoznámka: zobrazuje sa len prvých %d x %d buniek (IPC limit).\n", IPC_MAX_WORLD, IPC_MAX_WORLD);
         }
 
-        printf("\nOvládanie: 1=interaktívny, 2=sumárny, p=prepni summary view, q=ukonči\n");
+        printf("\nOvládanie: 1=interaktívny, 2=sumárny, p=prepni summary view, q=odpojiť\n");
 
-        if (ipc->quit) {
+        // Automatické odpojenie po dokončení simulácie
+        if (ipc->finished) {
+            printf("\n[Klient] Simulácia dokončená. Odpájam sa...\n");
+            sleep(2);
             stop_flag = 1;
             break;
         }
@@ -125,10 +136,6 @@ static void *input_thread(void *arg)
     ClientCtx *ctx = (ClientCtx *)arg;
     char line[64];
     while (!stop_flag) {
-        if (ctx->ipc && ctx->ipc->quit) {
-            stop_flag = 1;
-            break;
-        }
         if (!fgets(line, sizeof(line), stdin)) {
             stop_flag = 1;
             break;
@@ -138,12 +145,12 @@ static void *input_thread(void *arg)
         } else if (line[0] == '2') {
             send_cmd(ctx->sock_fd, "MODE 2\n");
         } else if (line[0] == 'p' || line[0] == 'P') {
-            // toggle summary view: posli podľa opačného stavu
-            int next = (ctx->ipc && ctx->ipc->summary_view == 0) ? 1 : 0;
-            if (next == 0) send_cmd(ctx->sock_fd, "SUMMARY 0\n");
-            else send_cmd(ctx->sock_fd, "SUMMARY 1\n");
+            // Toggle lokálny summary view (len pre tohto klienta)
+            pthread_mutex_lock(&ctx->view_lock);
+            ctx->summary_view = 1 - ctx->summary_view;
+            pthread_mutex_unlock(&ctx->view_lock);
         } else if (line[0] == 'q' || line[0] == 'Q') {
-            send_cmd(ctx->sock_fd, "QUIT\n");
+            printf("\n[Klient] Odpájam sa od servera...\n");
             stop_flag = 1;
             break;
         }
@@ -182,60 +189,85 @@ int client_run(void)
 {
     signal(SIGINT, handle_sigint);
 
-    printf("==============================\n");
-    printf("   RANDOM WALKER - KLIENT\n");
-    printf("==============================\n");
-    printf("[1] Nová simulácia (spustí server)\n");
-    printf("[2] Pripojiť sa k existujúcej simulácii\n");
-    printf("[3] Koniec\n");
-    printf("Vyber: ");
+    while (1) {  // Hlavná slučka pre opakované menu
+        stop_flag = 0;  // Reset flag pre nové pripojenie
 
-    char line[16];
-    if (!fgets(line, sizeof(line), stdin)) return 0;
-    int choice = atoi(line);
+        // Vyčisti obrazovku pred zobrazením menu
+        CLEAR_SCREEN();
+        
+        printf("\n==============================\n");
+        printf("   RANDOM WALKER - KLIENT\n");
+        printf("==============================\n");
+        printf("[1] Nová simulácia (spustí server)\n");
+        printf("[2] Pripojiť sa k existujúcej simulácii\n");
+        printf("[3] Koniec\n");
+        printf("Vyber: ");
 
-    if (choice == 3) return 0;
+        char line[16];
+        if (!fgets(line, sizeof(line), stdin)) return 0;
+        int choice = atoi(line);
 
-    if (choice == 1) {
-        printf("Spúšťam server...\n");
-        if (start_server_process() != 0) {
-            printf("Nepodarilo sa spustiť server.\n");
-            return 1;
+        if (choice == 3) {
+            printf("Ukončujem klienta.\n");
+            return 0;
         }
-        // malá pauza, kým sa server rozbehne
-        usleep(300 * 1000);
-    }
 
-    // Pripojenie k serveru
-    int sock_fd = connect_with_retries(SOCK_PATH, 50, 100);
-    if (sock_fd < 0) {
-        printf("Nepodarilo sa pripojiť k server socketu.\n");
-        return 1;
-    }
+        if (choice != 1 && choice != 2) {
+            printf("Neplatná voľba.\n");
+            continue;
+        }
 
-    // Over handshake (PING)
-    send_cmd(sock_fd, "PING\n");
+        if (choice == 1) {
+            printf("Spúšťam server...\n");
+            if (start_server_process() != 0) {
+                printf("Nepodarilo sa spustiť server.\n");
+                continue;  // Návrat do menu
+            }
+            printf("[Klient] Server spustený na pozadí.\n");
+            sleep(1);  // Čakaj na rozbehnutie servera
+        }
 
-    IPCShared *ipc = open_shm_with_retries(SHM_NAME, 50, 100);
-    if (!ipc) {
-        printf("Nepodarilo sa otvoriť zdieľanú pamäť.\n");
+        // Pripojenie k serveru
+        printf("[Klient] Pripájam sa k serveru...\n");
+        int sock_fd = connect_with_retries(SOCK_PATH, 50, 100);
+        if (sock_fd < 0) {
+            printf("[Klient] Nepodarilo sa pripojiť k server socketu.\n");
+            continue;  // Návrat do menu
+        }
+
+        // Over handshake (PING)
+        send_cmd(sock_fd, "PING\n");
+
+        IPCShared *ipc = open_shm_with_retries(SHM_NAME, 50, 100);
+        if (!ipc) {
+            printf("[Klient] Nepodarilo sa otvoriť zdieľanú pamäť.\n");
+            ipc_close_socket(sock_fd);
+            continue;  // Návrat do menu
+        }
+
+        printf("[Klient] Pripojený! Ovládanie: 1/2 (mód), p (summary view), q (odpojiť).\n");
+
+        ClientCtx ctx = {
+            .sock_fd = sock_fd,
+            .ipc = ipc,
+            .summary_view = 0,
+            .view_lock = PTHREAD_MUTEX_INITIALIZER
+        };
+
+        pthread_t t_render, t_input;
+        pthread_create(&t_render, NULL, render_thread, &ctx);
+        pthread_create(&t_input, NULL, input_thread, &ctx);
+
+        pthread_join(t_input, NULL);
+        stop_flag = 1;
+        pthread_join(t_render, NULL);
+
+        ipc_close_shared(ipc);
         ipc_close_socket(sock_fd);
-        return 1;
+        printf("[Klient] Odpojený od servera.\n");
+        
+        // Slučka pokračuje a zobrazí sa opäť menu
     }
-
-    printf("Pripojené. Ovládanie: 1/2 (mód), p (summary view), q (quit).\n");
-
-    ClientCtx ctx = { .sock_fd = sock_fd, .ipc = ipc };
-
-    pthread_t t_render, t_input;
-    pthread_create(&t_render, NULL, render_thread, &ctx);
-    pthread_create(&t_input, NULL, input_thread, &ctx);
-
-    pthread_join(t_input, NULL);
-    stop_flag = 1;
-    pthread_join(t_render, NULL);
-
-    ipc_close_shared(ipc);
-    ipc_close_socket(sock_fd);
+    
     return 0;
 }
