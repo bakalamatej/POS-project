@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
+#include <termios.h>
 
 #include "client.h"
 #include "ipc.h"
@@ -16,11 +17,36 @@ static const char *SHM_NAME = "/pos_shm";
 static const char *SOCK_PATH = "/tmp/pos_socket";
 
 static volatile sig_atomic_t stop_flag = 0;
+static struct termios orig_termios;
+static bool termios_saved = false;
 
 static void handle_sigint(int sig)
 {
     (void)sig;
     stop_flag = 1;
+}
+
+static void disable_raw_mode(void)
+{
+    if (termios_saved) {
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+        termios_saved = false;
+    }
+}
+
+static void enable_raw_mode(void)
+{
+    if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) {
+        return;
+    }
+    termios_saved = true;
+
+    struct termios raw = orig_termios;
+    raw.c_lflag &= ~(ICANON | ECHO);
+    raw.c_cc[VMIN] = 1;
+    raw.c_cc[VTIME] = 0;
+
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
 typedef struct ClientCtx {
@@ -134,22 +160,20 @@ static void *render_thread(void *arg)
 static void *input_thread(void *arg)
 {
     ClientCtx *ctx = (ClientCtx *)arg;
-    char line[64];
+    
     while (!stop_flag) {
-        if (!fgets(line, sizeof(line), stdin)) {
-            stop_flag = 1;
-            break;
-        }
-        if (line[0] == '1') {
+        char ch = getchar();
+        
+        if (ch == '1') {
             send_cmd(ctx->sock_fd, "MODE 1\n");
-        } else if (line[0] == '2') {
+        } else if (ch == '2') {
             send_cmd(ctx->sock_fd, "MODE 2\n");
-        } else if (line[0] == 'p' || line[0] == 'P') {
+        } else if (ch == 'p' || ch == 'P') {
             // Toggle lokálny summary view (len pre tohto klienta)
             pthread_mutex_lock(&ctx->view_lock);
             ctx->summary_view = 1 - ctx->summary_view;
             pthread_mutex_unlock(&ctx->view_lock);
-        } else if (line[0] == 'q' || line[0] == 'Q') {
+        } else if (ch == 'q' || ch == 'Q') {
             printf("\n[Klient] Odpájam sa od servera...\n");
             stop_flag = 1;
             break;
@@ -188,6 +212,9 @@ static IPCShared* open_shm_with_retries(const char *name, int attempts, int slee
 int client_run(void)
 {
     signal(SIGINT, handle_sigint);
+    
+    // Zapni raw mode hneď na začiatku
+    enable_raw_mode();
 
     while (1) {  // Hlavná slučka pre opakované menu
         stop_flag = 0;  // Reset flag pre nové pripojenie
@@ -201,51 +228,53 @@ int client_run(void)
         printf("[1] Nová simulácia (spustí server)\n");
         printf("[2] Pripojiť sa k existujúcej simulácii\n");
         printf("[3] Koniec\n");
-        printf("Vyber: ");
 
-        char line[16];
-        if (!fgets(line, sizeof(line), stdin)) return 0;
-        int choice = atoi(line);
+        // Čítaj znak priamo (BEZ Enter)
+        char choice = getchar();
 
-        if (choice == 3) {
-            printf("Ukončujem klienta.\n");
+        if (choice == '3') {
+            disable_raw_mode();
+            printf("\nUkončujem klienta.\n");
             return 0;
         }
 
-        if (choice != 1 && choice != 2) {
-            printf("Neplatná voľba.\n");
+        if (choice != '1' && choice != '2') {
+            printf("\nNeplatná voľba.\n");
+            sleep(1);
             continue;
         }
 
-        if (choice == 1) {
-            printf("Spúšťam server...\n");
+        if (choice == '1') {
+            printf("\nSpúšťam server...\n");
             if (start_server_process() != 0) {
                 printf("Nepodarilo sa spustiť server.\n");
-                continue;  // Návrat do menu
+                sleep(2);
+                continue;
             }
             printf("[Klient] Server spustený na pozadí.\n");
-            sleep(1);  // Čakaj na rozbehnutie servera
+            sleep(1);
         }
 
-        // Pripojenie k serveru
         printf("[Klient] Pripájam sa k serveru...\n");
         int sock_fd = connect_with_retries(SOCK_PATH, 50, 100);
         if (sock_fd < 0) {
             printf("[Klient] Nepodarilo sa pripojiť k server socketu.\n");
-            continue;  // Návrat do menu
+            sleep(2);
+            continue;
         }
 
-        // Over handshake (PING)
         send_cmd(sock_fd, "PING\n");
 
         IPCShared *ipc = open_shm_with_retries(SHM_NAME, 50, 100);
         if (!ipc) {
             printf("[Klient] Nepodarilo sa otvoriť zdieľanú pamäť.\n");
             ipc_close_socket(sock_fd);
-            continue;  // Návrat do menu
+            sleep(2);
+            continue;
         }
 
-        printf("[Klient] Pripojený! Ovládanie: 1/2 (mód), p (summary view), q (odpojiť).\n");
+        printf("[Klient] Pripojený k serveru.\n");
+        sleep(1);
 
         ClientCtx ctx = {
             .sock_fd = sock_fd,
@@ -265,6 +294,7 @@ int client_run(void)
         ipc_close_shared(ipc);
         ipc_close_socket(sock_fd);
         printf("[Klient] Odpojený od servera.\n");
+        sleep(1);
         
         // Slučka pokračuje a zobrazí sa opäť menu
     }
