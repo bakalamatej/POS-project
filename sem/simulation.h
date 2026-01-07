@@ -7,6 +7,8 @@
 #include <stdbool.h>
 #include "walker.h"
 
+struct IPCShared;
+
 typedef struct {
     double up;
     double down;
@@ -31,12 +33,15 @@ typedef struct SharedState {
     Walker walker;
 
     int mode;   // 1 interactive / 2 summary
+    int summary_view; // 0 average steps, 1 probability
     bool quit;
     bool finished;
 
     Probabilities prob;
 
     pthread_mutex_t lock;
+
+    struct IPCShared *ipc; // ukazovatel na zdieľanú pamäť (nastaví server)
 
 } SharedState;
 

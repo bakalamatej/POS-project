@@ -127,34 +127,36 @@ void display_summary(SharedState *S)
     printf("Replication %d / %d\n\n",
            S->current_rep, S->replications);
 
-    printf("Average number of steps:\n");
+    if (S->summary_view == 0) {
+        printf("Average number of steps:\n");
 
-    for (int y = 0; y < S->world_size; y++) {
-        for (int x = 0; x < S->world_size; x++) {
-            if (S->use_obstacles && S->obstacles[y][x]) {
-                printf(" ###");
-            } else if (S->success_count[y][x] > 0) {
-                printf("%3d ",
-                    S->total_steps[y][x] / S->success_count[y][x]);
-            } else {
-                printf(" -- ");
+        for (int y = 0; y < S->world_size; y++) {
+            for (int x = 0; x < S->world_size; x++) {
+                if (S->use_obstacles && S->obstacles[y][x]) {
+                    printf(" ###");
+                } else if (S->success_count[y][x] > 0) {
+                    printf("%3d ",
+                        S->total_steps[y][x] / S->success_count[y][x]);
+                } else {
+                    printf(" -- ");
+                }
             }
+            printf("\n");
         }
-        printf("\n");
-    }
+    } else {
+        printf("Probability of reaching the center:\n");
 
-    printf("\nProbability of reaching the center:\n");
-
-    for (int y = 0; y < S->world_size; y++) {
-        for (int x = 0; x < S->world_size; x++) {
-            if (S->use_obstacles && S->obstacles[y][x]) {
-                printf(" ###");
-            } else {
-                printf("%3d%% ", 
-                    (S->success_count[y][x] * 100) / S->replications);
+        for (int y = 0; y < S->world_size; y++) {
+            for (int x = 0; x < S->world_size; x++) {
+                if (S->use_obstacles && S->obstacles[y][x]) {
+                    printf(" ###");
+                } else {
+                    printf("%3d%% ", 
+                        (S->success_count[y][x] * 100) / S->replications);
+                }
             }
+            printf("\n");
         }
-        printf("\n");
     }
 
     if (S->use_obstacles) {
