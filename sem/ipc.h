@@ -17,7 +17,6 @@ typedef struct IPCShared {
 	int replications;
 	int summary_view; // 0 = average steps, 1 = probability
 	int finished;
-	int quit;
 	int obstacles[IPC_MAX_WORLD][IPC_MAX_WORLD];
 	int total_steps[IPC_MAX_WORLD][IPC_MAX_WORLD];
 	int success_count[IPC_MAX_WORLD][IPC_MAX_WORLD];

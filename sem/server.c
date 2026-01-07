@@ -66,7 +66,6 @@ static void update_ipc_basic(SharedState *S)
     S->ipc->current_rep = S->current_rep;
     S->ipc->replications = S->replications;
     S->ipc->finished = S->finished ? 1 : 0;
-    S->ipc->quit = S->quit ? 1 : 0;
 }
 
 static void send_str(int fd, const char *msg)
@@ -84,9 +83,9 @@ static void *client_handler_thread(void *arg)
     ssize_t nread;
     while (1) {
         pthread_mutex_lock(&S->lock);
-        bool quit = S->quit;
+        bool finished = S->finished;
         pthread_mutex_unlock(&S->lock);
-        if (quit) break;
+        if (finished) break;
 
         nread = read(fd, buf, sizeof(buf)-1);
         if (nread <= 0) {
@@ -140,9 +139,9 @@ static void *socket_thread(void *arg)
 
     while (1) {
         pthread_mutex_lock(&S->lock);
-        bool quit = S->quit;
+        bool finished = S->finished;
         pthread_mutex_unlock(&S->lock);
-        if (quit) break;
+        if (finished) break;
 
         int cfd = ipc_accept_socket(listen_fd);
         if (cfd >= 0) {
@@ -202,7 +201,6 @@ int server_run(const ServerConfig *config)
     S.mode = 1;
     S.summary_view = 0;
     S.finished = false;
-    S.quit = false;
 
     printf("Starting simulation:\n");
     printf("  world_size = %d\n", S.world_size);
@@ -251,13 +249,8 @@ int server_run(const ServerConfig *config)
 
     while (1) {
         pthread_mutex_lock(&S.lock);
-        bool quit = S.quit;
         bool finished = S.finished;
         pthread_mutex_unlock(&S.lock);
-
-        if (quit) {
-            break;
-        }
 
         if (finished) {
             if (!finished_noted) {
@@ -278,7 +271,7 @@ int server_run(const ServerConfig *config)
     }
 
     pthread_mutex_lock(&S.lock);
-    S.quit = true;
+    S.finished = true;
     update_ipc_basic(&S);
     pthread_mutex_unlock(&S.lock);
 

@@ -33,7 +33,6 @@ static void sync_progress_to_ipc(SharedState *S)
     S->ipc->current_rep = S->current_rep;
     S->ipc->replications = S->replications;
     S->ipc->finished = S->finished ? 1 : 0;
-    S->ipc->quit = S->quit ? 1 : 0;
 }
 
 static int simulate_from(SharedState *S, Walker start)
@@ -56,15 +55,6 @@ void* simulation_thread(void *arg)
 
     for (int r = 0; r < S->replications; r++) {
 
-        pthread_mutex_lock(&S->lock);
-        if (S->quit) {
-            pthread_mutex_unlock(&S->lock);
-            return NULL;
-        }
-        S->current_rep = r + 1;
-        sync_progress_to_ipc(S);
-        pthread_mutex_unlock(&S->lock);
-
         for (int y = 0; y < S->world_size; y++) {
             for (int x = 0; x < S->world_size; x++) {
 
@@ -72,11 +62,6 @@ void* simulation_thread(void *arg)
                 int steps = simulate_from(S, start);
 
                 pthread_mutex_lock(&S->lock);
-
-                if (S->quit) {
-                    pthread_mutex_unlock(&S->lock);
-                    return NULL;
-                }
 
                 if (steps != -1) {
                     S->success_count[y][x]++;
@@ -87,11 +72,9 @@ void* simulation_thread(void *arg)
             }
         }
 
+        // Aktualizuj current_rep až PO dokončení celej replikácie
         pthread_mutex_lock(&S->lock);
-        if (S->quit) {
-            pthread_mutex_unlock(&S->lock);
-            return NULL;
-        }
+        S->current_rep = r + 1;
         copy_summary_to_ipc(S);
         sync_progress_to_ipc(S);
         pthread_mutex_unlock(&S->lock);
@@ -118,11 +101,11 @@ void* walker_thread(void *arg)
     while (1) {
 
         pthread_mutex_lock(&S->lock);
-        bool quit = S->quit;
+        bool finished = S->finished;
         int max = S->max_steps;
         pthread_mutex_unlock(&S->lock);
 
-        if (quit) return NULL;
+        if (finished) return NULL;
         if (steps >= max) return NULL;
 
         clock_gettime(CLOCK_MONOTONIC, &now);
@@ -144,7 +127,6 @@ void* walker_thread(void *arg)
                 S->ipc->walker_y = wy;
                 S->ipc->mode = S->mode;
                 S->ipc->summary_view = S->summary_view;
-                S->ipc->quit = S->quit ? 1 : 0;
                 S->ipc->finished = S->finished ? 1 : 0;
                 S->ipc->world_size = n;
             }

@@ -34,7 +34,6 @@ typedef struct SharedState {
 
     int mode;   // 1 interactive / 2 summary
     int summary_view; // 0 average steps, 1 probability
-    bool quit;
     bool finished;
 
     Probabilities prob;

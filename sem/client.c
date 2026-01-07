@@ -187,7 +187,6 @@ static void *render_thread(void *arg)
         int current_rep = ipc->current_rep;
         int replications = ipc->replications;
         int finished = ipc->finished;
-        int quit = ipc->quit;
         
         // Skopíruj obstacles a štatistiky
         int n = world_size;
@@ -218,9 +217,7 @@ static void *render_thread(void *arg)
                (mode == 1) ? "interactive" : "summary",
                (local_view == 0) ? "average steps" : "probability");
         printf("Replication %d / %d\n", current_rep, replications);
-        printf("Finished: %s | Quit: %s\n",
-               finished ? "yes" : "no",
-               quit ? "yes" : "no");
+        printf("Finished: %s\n", finished ? "yes" : "no");
 
         if (mode == 1) {
             printf("\nInteractive view (W=walker, *=center, #=obstacle)\n");
@@ -256,7 +253,7 @@ static void *render_thread(void *arg)
                 }
             } else {
                 printf("\nProbability of reaching center (%%):\n");
-                int denom = replications > 0 ? replications : 1;
+                int denom = current_rep > 0 ? current_rep : 1;
                 for (int y = 0; y < n; y++) {
                     for (int x = 0; x < n; x++) {
                         if (local_obstacles[y][x]) {
