@@ -253,7 +253,7 @@ static void *render_thread(void *arg)
                 }
             } else {
                 printf("\nProbability of reaching center (%%):\n");
-                int denom = current_rep > 0 ? current_rep : 1;
+                int denom = replications > 0 ? replications : 1;
                 for (int y = 0; y < n; y++) {
                     for (int x = 0; x < n; x++) {
                         if (local_obstacles[y][x]) {
