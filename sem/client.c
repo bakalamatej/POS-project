@@ -139,18 +139,10 @@ static int get_simulation_params(SimParams *params)
             enable_raw_mode();
             return -1;
         }
-        printf("  Vpravo: ");
-        if (scanf("%lf", &params->prob_right) != 1) {
-            enable_raw_mode();
-            return -1;
-        }
-        // Validácia pravdepodobností
-        double sum = params->prob_up + params->prob_down + params->prob_left + params->prob_right;
-        if (sum < 0.99 || sum > 1.01) {
-            printf("Chyba: Súčet pravdepodobností musí byť 1.0 (aktuálne: %.2f)\n", sum);
-            enable_raw_mode();
-            return -1;
-        }
+
+        // Dopocitanie pravdepodonosti vpravo
+        params->prob_right = 1.0 - (params->prob_up + params->prob_down + params->prob_left);
+        printf("  Pravdepodobnosť vpravo bola dopočítaná: %.2f\n", params->prob_right);
     } else {
         params->prob_up = 0.25;
         params->prob_down = 0.25;
