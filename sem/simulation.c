@@ -38,15 +38,23 @@ static void sync_progress_to_ipc(SharedState *S)
 static int simulate_from(SharedState *S, Walker start)
 {
     Walker w = start;
+    int center_x = S->world_size / 2;
+    int center_y = S->world_size / 2;
 
-    for (int s = 0; s < S->max_steps; s++) {
+    // Špeciálny prípad: Walker už začína v strede
+    if (w.x == center_x && w.y == center_y)
+        return 0;  // 0 krokov
 
-        if (w.x == S->world_size/2 && w.y == S->world_size/2)
-            return s;
-
-        random_walk(S, &w);
+    // Simuluj kroky
+    for (int step = 1; step <= S->max_steps; step++) {
+        random_walk(S, &w);  // Vykonaj krok
+        
+        // Skontroluj, či walker dosiahol stred
+        if (w.x == center_x && w.y == center_y)
+            return step;  // Úspech! Vráti počet krokov
     }
-    return -1;
+    
+    return -1;  // Neúspech - walker nedosiahol stred za max_steps
 }
 
 void* simulation_thread(void *arg)

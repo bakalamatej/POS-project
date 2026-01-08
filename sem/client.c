@@ -276,10 +276,7 @@ static void *render_thread(void *arg)
 
         // Automatické odpojenie po dokončení simulácie
         if (finished) {
-            printf("\n[Klient] Simulácia dokončená. Odpájam sa...\n");
-            sleep(2);
-            stop_flag = 1;
-            break;
+            printf("\n[Klient] Simulácia dokončená. Pre odpojenie stlačte q.\n");
         }
 
         struct timespec ts = {0, 300 * 1000000L};
