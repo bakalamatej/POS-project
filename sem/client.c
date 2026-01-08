@@ -84,7 +84,7 @@ static int get_simulation_params(SimParams *params)
     printf("\n=== Vytvorenie novej simulácie ===\n\n");
     
     // Typ sveta
-    printf("Použiť súbor s prekážkami? (1=áno, 0=nie): ");
+    printf("Použiť súbor s prekážkami? (1 = áno, 0 = nie): \n");
     if (scanf("%d", &params->use_obstacles_file) != 1) {
         enable_raw_mode();
         return -1;
@@ -94,7 +94,7 @@ static int get_simulation_params(SimParams *params)
         strcpy(params->obstacles_file, "obstacles.txt");
         params->world_size = 0; // Veľkosť sa načíta zo súboru
     } else {
-        printf("Rozmery sveta (napr. 10): ");
+        printf("Rozmery sveta (napr. 10): \n");
         if (scanf("%d", &params->world_size) != 1 || params->world_size <= 0) {
             printf("Chyba: Neplatné rozmery sveta.\n");
             enable_raw_mode();
@@ -104,7 +104,7 @@ static int get_simulation_params(SimParams *params)
     }
     
     // Počet replikácií
-    printf("Počet replikácií (napr. 1000000): ");
+    printf("Počet replikácií (napr. 1000000): \n");
     if (scanf("%d", &params->replications) != 1 || params->replications <= 0) {
         printf("Chyba: Neplatný počet replikácií.\n");
         enable_raw_mode();
@@ -112,7 +112,7 @@ static int get_simulation_params(SimParams *params)
     }
     
     // Maximálny počet krokov K
-    printf("Maximálny počet krokov K (napr. 100): ");
+    printf("Maximálny počet krokov K (napr. 100): \n");
     if (scanf("%d", &params->max_steps) != 1 || params->max_steps <= 0) {
         printf("Chyba: Neplatný počet krokov.\n");
         enable_raw_mode();
@@ -120,35 +120,44 @@ static int get_simulation_params(SimParams *params)
     }
     
     // Pravdepodobnosti
-    printf("Pravdepodobnosti pohybu (4 čísla, súčet = 1.0):\n");
-    printf("  Hore: ");
-    if (scanf("%lf", &params->prob_up) != 1) {
-        enable_raw_mode();
-        return -1;
+    printf("Chcete zadať pravdepodobnosti pohybu? (1 = áno, 0 = nie, predvolené 0.25 každá): \n");
+    int prob_choice;
+    if (scanf("%d", &prob_choice) == 1 && prob_choice == 1) {
+        printf("Pravdepodobnosti pohybu (4 čísla, súčet = 1.0):\n");
+        printf("  Hore: ");
+        if (scanf("%lf", &params->prob_up) != 1) {
+            enable_raw_mode();
+            return -1;
+        }
+        printf("  Dole: ");
+        if (scanf("%lf", &params->prob_down) != 1) {
+            enable_raw_mode();
+            return -1;
+        }
+        printf("  Vľavo: ");
+        if (scanf("%lf", &params->prob_left) != 1) {
+            enable_raw_mode();
+            return -1;
+        }
+        printf("  Vpravo: ");
+        if (scanf("%lf", &params->prob_right) != 1) {
+            enable_raw_mode();
+            return -1;
+        }
+        // Validácia pravdepodobností
+        double sum = params->prob_up + params->prob_down + params->prob_left + params->prob_right;
+        if (sum < 0.99 || sum > 1.01) {
+            printf("Chyba: Súčet pravdepodobností musí byť 1.0 (aktuálne: %.2f)\n", sum);
+            enable_raw_mode();
+            return -1;
+        }
+    } else {
+        params->prob_up = 0.25;
+        params->prob_down = 0.25;
+        params->prob_left = 0.25;
+        params->prob_right = 0.25;
     }
-    printf("  Dole: ");
-    if (scanf("%lf", &params->prob_down) != 1) {
-        enable_raw_mode();
-        return -1;
-    }
-    printf("  Vľavo: ");
-    if (scanf("%lf", &params->prob_left) != 1) {
-        enable_raw_mode();
-        return -1;
-    }
-    printf("  Vpravo: ");
-    if (scanf("%lf", &params->prob_right) != 1) {
-        enable_raw_mode();
-        return -1;
-    }
-    
-    // Validácia pravdepodobností
-    double sum = params->prob_up + params->prob_down + params->prob_left + params->prob_right;
-    if (sum < 0.99 || sum > 1.01) {
-        printf("Chyba: Súčet pravdepodobností musí byť 1.0 (aktuálne: %.2f)\n", sum);
-        enable_raw_mode();
-        return -1;
-    }
+   
     
     // Výstupný súbor
     printf("Názov výstupného súboru (napr. results.txt): ");
