@@ -59,7 +59,7 @@ static void print_header(void)
 {
     CLEAR_SCREEN();
     printf("\n==============================\n");
-    printf("   RANDOM WALKER - KLIENT\n");
+    printf("   RANDOM WALKER - CLIENT\n");
     printf("==============================\n");
 }
 
@@ -91,10 +91,9 @@ static int get_simulation_params(SimParams *params)
     disable_raw_mode();
     
     print_header();
-    printf("=== Vytvorenie novej simulácie ===\n\n");
-    
-    // Typ sveta
-    printf("Použiť súbor s prekážkami? [1] = áno, [0] = nie: \n");
+
+    // World configuration
+    printf("Use an obstacles file? \n[1] = yes\n[0] = no\n");
     if (scanf("%d", &params->use_obstacles_file) != 1) {
         enable_raw_mode();
         return -1;
@@ -105,9 +104,9 @@ static int get_simulation_params(SimParams *params)
         params->world_size = 0; // Veľkosť sa načíta zo súboru
     } else {    
         print_header();
-        printf("Rozmery sveta (napr. 10): \n");
+        printf("World size (e.g. 10): \n");
         if (scanf("%d", &params->world_size) != 1 || params->world_size <= 0) {
-            printf("Chyba: Neplatné rozmery sveta.\n");
+            printf("Error: Invalid world dimensions.\n");
             enable_raw_mode();
             return -1;
         }
@@ -116,29 +115,29 @@ static int get_simulation_params(SimParams *params)
     
     // Počet replikácií
     print_header();
-    printf("Počet replikácií (napr. 1000000): \n");
+    printf("Number of replications (e.g. 1000000): \n");
     if (scanf("%d", &params->replications) != 1 || params->replications <= 0) {
-        printf("Chyba: Neplatný počet replikácií.\n");
+        printf("Error: Invalid number of replications.\n");
         enable_raw_mode();
         return -1;
     }
     
     // Maximálny počet krokov K
     print_header();
-    printf("Maximálny počet krokov K (napr. 100): \n");
+    printf("Maximum number of steps K (e.g. 100): \n");
     if (scanf("%d", &params->max_steps) != 1 || params->max_steps <= 0) {
-        printf("Chyba: Neplatný počet krokov.\n");
+        printf("Error: Invalid number of steps.\n");
         enable_raw_mode();
         return -1;
     }
     
     // Pravdepodobnosti
     print_header();
-    printf("Chcete zadať pravdepodobnosti pohybu? [1] = áno, [0] = nie, predvolené 0.25: \n");
+    printf("Do you want to enter movement probabilities? \n[1] = yes\n[0] = no (defaults to 0.25 each)\n");
     int prob_choice;
     if (scanf("%d", &prob_choice) == 1 && prob_choice == 1) {
         print_header();
-        printf("Pravdepodobnosti pohybu (4 čísla, súčet = 1.0):\n");
+        printf("Movement probabilities (4 numbers, sum = 1.0):\n");
         printf("  Hore: ");
         if (scanf("%lf", &params->prob_up) != 1) {
             enable_raw_mode();
@@ -157,7 +156,7 @@ static int get_simulation_params(SimParams *params)
     
         // Dopocitanie pravdepodonosti vpravo
         params->prob_right = 1.0 - (params->prob_up + params->prob_down + params->prob_left);
-        printf("Pravdepodobnosť vpravo bola dopočítaná: %.2f\n", params->prob_right);
+        printf("Calculated right probability: %.2f\n", params->prob_right);
     
     } else {
         params->prob_up = 0.25;
@@ -169,7 +168,7 @@ static int get_simulation_params(SimParams *params)
     
     // Výstupný súbor
     print_header();
-    printf("Názov výstupného súboru (napr. results.txt): ");
+    printf("Output file name (e.g. results.txt): ");
     if (scanf("%255s", params->output_file) != 1) {
         enable_raw_mode();
         return -1;
@@ -287,14 +286,14 @@ static void *render_thread(void *arg)
         }
 
         if (world_size > IPC_MAX_WORLD) {
-            printf("\nPoznámka: zobrazuje sa len prvých %d x %d buniek (IPC limit).\n", IPC_MAX_WORLD, IPC_MAX_WORLD);
+            printf("\nNote: only the first %d x %d cells are shown (IPC limit).\n", IPC_MAX_WORLD, IPC_MAX_WORLD);
         }
 
-        printf("\nMOŽNOSTI: \n[1] interaktívny \n[2] sumárny \n[3] prepni summary view \n[ESC] odpojiť\n");
+        printf("\nOPTIONS: \n[1] interactive \n[2] summary \n[3] toggle summary view \n[ESC] disconnect\n");
 
-        // Automatické odpojenie po dokončení simulácie
+        // Automatic disconnect after simulation completes
         if (finished) {
-            printf("\n[Klient] Simulácia dokončená. Pre odpojenie stlačte [ESC].\n");
+            printf("\n[Client] Simulation completed. Press [ESC] to disconnect.\n");
         }
 
         struct timespec ts = {0, 300 * 1000000L};
@@ -320,7 +319,7 @@ static void *input_thread(void *arg)
             ctx->summary_view = 1 - ctx->summary_view;
             pthread_mutex_unlock(&ctx->view_lock);
         } else if (ch == 27) {
-            printf("\n[Klient] Odpájam sa od servera...\n");
+            printf("\n[Client] Disconnecting from server...\n");
             stop_flag = 1;
             break;
         }
@@ -351,7 +350,7 @@ static int start_server_process(const SimParams *params)
     // Pridaj presmerovanie a background
     snprintf(cmd + n, sizeof(cmd) - n, " >/dev/null 2>&1 &");
     
-    printf("Spúšťam server s parametrami...\n");
+    printf("Launching server with parameters...\n");
     int rc = system(cmd);
     return (rc == -1) ? -1 : 0;
 }
@@ -388,21 +387,21 @@ int client_run(void)
 
         // Vytlač hlavičku
         print_header();
-        printf("[1] Nová simulácia (spustí server)\n");
-        printf("[2] Pripojiť sa k existujúcej simulácii\n");
-        printf("[ESC] Koniec\n");
+        printf("[ 1 ] New simulation (starts server)\n");
+        printf("[ 2 ] Connect to an existing simulation\n");
+        printf("[ESC] Exit\n");
 
         // Čítaj znak priamo (BEZ Enter)
         char choice = getchar();
 
         if (choice == 27) {
             disable_raw_mode();
-            printf("\nUkončujem klienta.\n");
+            printf("\nExiting client.\n");
             return 0;
         }
 
         if (choice != '1' && choice != '2') {
-            printf("\nNeplatná voľba.\n");
+            printf("\nInvalid option.\n");
             sleep(1);
             continue;
         }
@@ -410,25 +409,25 @@ int client_run(void)
         if (choice == '1') {
             SimParams params;
             if (get_simulation_params(&params) != 0) {
-                printf("\nChyba pri zadávaní parametrov. Stlač ľubovoľnú klávesu...\n");
+                printf("\nError while entering parameters. Press any key...\n");
                 getchar();
                 continue;
             }
             
-            printf("\nVytvárám novú simuláciu...\n");
+            printf("\nCreating a new simulation...\n");
             if (start_server_process(&params) != 0) {
-                printf("Chyba: Nepodarilo sa spustiť server.\n");
+                printf("Error: Failed to start server.\n");
                 sleep(2);
                 continue;
             }
-            printf("[Klient] Server spustený na pozadí.\n");
+            printf("[Client] Server started in the background.\n");
             sleep(1);
         }
 
-        printf("[Klient] Pripájam sa k serveru...\n");
+        printf("[Client] Connecting to server...\n");
         int sock_fd = connect_with_retries(SOCK_PATH, 50, 100);
         if (sock_fd < 0) {
-            printf("[Klient] Nepodarilo sa pripojiť k server socketu.\n");
+            printf("[Client] Failed to connect to the server socket.\n");
             sleep(2);
             continue;
         }
@@ -437,13 +436,13 @@ int client_run(void)
 
         IPCShared *ipc = open_shm_with_retries(SHM_NAME, 50, 100);
         if (!ipc) {
-            printf("[Klient] Nepodarilo sa otvoriť zdieľanú pamäť.\n");
+            printf("[Client] Failed to open shared memory.\n");
             ipc_close_socket(sock_fd);
             sleep(2);
             continue;
         }
 
-        printf("[Klient] Pripojený k serveru.\n");
+        printf("[Client] Connected to server.\n");
         sleep(1);
 
         ClientCtx ctx = {
@@ -463,7 +462,7 @@ int client_run(void)
 
         ipc_close_shared(ipc);
         ipc_close_socket(sock_fd);
-        printf("[Klient] Odpojený od servera.\n");
+        printf("[Client] Disconnected from server.\n");
         sleep(1);
         
         // Slučka pokračuje a zobrazí sa opäť menu
