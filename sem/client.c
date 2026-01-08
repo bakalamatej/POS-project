@@ -54,6 +54,15 @@ static void enable_raw_mode(void)
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
+// Vytlačí hlavičku aplikácie a vyčistí obrazovku
+static void print_header(void)
+{
+    CLEAR_SCREEN();
+    printf("\n==============================\n");
+    printf("   RANDOM WALKER - KLIENT\n");
+    printf("==============================\n");
+}
+
 typedef struct SimParams {
     int world_size;
     int replications;
@@ -81,10 +90,11 @@ static int get_simulation_params(SimParams *params)
     // Dočasne vypni raw mode pre zadávanie parametrov
     disable_raw_mode();
     
-    printf("\n=== Vytvorenie novej simulácie ===\n\n");
+    print_header();
+    printf("=== Vytvorenie novej simulácie ===\n\n");
     
     // Typ sveta
-    printf("Použiť súbor s prekážkami? (1 = áno, 0 = nie): \n");
+    printf("Použiť súbor s prekážkami? [1] = áno, [0] = nie: \n");
     if (scanf("%d", &params->use_obstacles_file) != 1) {
         enable_raw_mode();
         return -1;
@@ -93,7 +103,8 @@ static int get_simulation_params(SimParams *params)
     if (params->use_obstacles_file) {
         strcpy(params->obstacles_file, "obstacles.txt");
         params->world_size = 0; // Veľkosť sa načíta zo súboru
-    } else {
+    } else {    
+        print_header();
         printf("Rozmery sveta (napr. 10): \n");
         if (scanf("%d", &params->world_size) != 1 || params->world_size <= 0) {
             printf("Chyba: Neplatné rozmery sveta.\n");
@@ -104,6 +115,7 @@ static int get_simulation_params(SimParams *params)
     }
     
     // Počet replikácií
+    print_header();
     printf("Počet replikácií (napr. 1000000): \n");
     if (scanf("%d", &params->replications) != 1 || params->replications <= 0) {
         printf("Chyba: Neplatný počet replikácií.\n");
@@ -112,6 +124,7 @@ static int get_simulation_params(SimParams *params)
     }
     
     // Maximálny počet krokov K
+    print_header();
     printf("Maximálny počet krokov K (napr. 100): \n");
     if (scanf("%d", &params->max_steps) != 1 || params->max_steps <= 0) {
         printf("Chyba: Neplatný počet krokov.\n");
@@ -120,9 +133,11 @@ static int get_simulation_params(SimParams *params)
     }
     
     // Pravdepodobnosti
-    printf("Chcete zadať pravdepodobnosti pohybu? (1 = áno, 0 = nie, predvolené 0.25 každá): \n");
+    print_header();
+    printf("Chcete zadať pravdepodobnosti pohybu? [1] = áno, [0] = nie, predvolené 0.25: \n");
     int prob_choice;
     if (scanf("%d", &prob_choice) == 1 && prob_choice == 1) {
+        print_header();
         printf("Pravdepodobnosti pohybu (4 čísla, súčet = 1.0):\n");
         printf("  Hore: ");
         if (scanf("%lf", &params->prob_up) != 1) {
@@ -139,10 +154,11 @@ static int get_simulation_params(SimParams *params)
             enable_raw_mode();
             return -1;
         }
-
+    
         // Dopocitanie pravdepodonosti vpravo
         params->prob_right = 1.0 - (params->prob_up + params->prob_down + params->prob_left);
-        printf("  Pravdepodobnosť vpravo bola dopočítaná: %.2f\n", params->prob_right);
+        printf("Pravdepodobnosť vpravo bola dopočítaná: %.2f\n", params->prob_right);
+    
     } else {
         params->prob_up = 0.25;
         params->prob_down = 0.25;
@@ -152,6 +168,7 @@ static int get_simulation_params(SimParams *params)
    
     
     // Výstupný súbor
+    print_header();
     printf("Názov výstupného súboru (napr. results.txt): ");
     if (scanf("%255s", params->output_file) != 1) {
         enable_raw_mode();
@@ -273,11 +290,11 @@ static void *render_thread(void *arg)
             printf("\nPoznámka: zobrazuje sa len prvých %d x %d buniek (IPC limit).\n", IPC_MAX_WORLD, IPC_MAX_WORLD);
         }
 
-        printf("\nOvládanie: 1=interaktívny, 2=sumárny, p=prepni summary view, q=odpojiť\n");
+        printf("\nMOŽNOSTI: \n[1] interaktívny \n[2] sumárny \n[3] prepni summary view \n[ESC] odpojiť\n");
 
         // Automatické odpojenie po dokončení simulácie
         if (finished) {
-            printf("\n[Klient] Simulácia dokončená. Pre odpojenie stlačte q.\n");
+            printf("\n[Klient] Simulácia dokončená. Pre odpojenie stlačte [ESC].\n");
         }
 
         struct timespec ts = {0, 300 * 1000000L};
@@ -297,12 +314,12 @@ static void *input_thread(void *arg)
             send_cmd(ctx->sock_fd, "MODE 1\n");
         } else if (ch == '2') {
             send_cmd(ctx->sock_fd, "MODE 2\n");
-        } else if (ch == 'p' || ch == 'P') {
+        } else if (ch == '3') {
             // Toggle lokálny summary view (len pre tohto klienta)
             pthread_mutex_lock(&ctx->view_lock);
             ctx->summary_view = 1 - ctx->summary_view;
             pthread_mutex_unlock(&ctx->view_lock);
-        } else if (ch == 'q' || ch == 'Q') {
+        } else if (ch == 27) {
             printf("\n[Klient] Odpájam sa od servera...\n");
             stop_flag = 1;
             break;
@@ -369,20 +386,16 @@ int client_run(void)
     while (1) {  // Hlavná slučka pre opakované menu
         stop_flag = 0;  // Reset flag pre nové pripojenie
 
-        // Vyčisti obrazovku pred zobrazením menu
-        CLEAR_SCREEN();
-        
-        printf("\n==============================\n");
-        printf("   RANDOM WALKER - KLIENT\n");
-        printf("==============================\n");
+        // Vytlač hlavičku
+        print_header();
         printf("[1] Nová simulácia (spustí server)\n");
         printf("[2] Pripojiť sa k existujúcej simulácii\n");
-        printf("[3] Koniec\n");
+        printf("[ESC] Koniec\n");
 
         // Čítaj znak priamo (BEZ Enter)
         char choice = getchar();
 
-        if (choice == '3') {
+        if (choice == 27) {
             disable_raw_mode();
             printf("\nUkončujem klienta.\n");
             return 0;
