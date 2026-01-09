@@ -9,6 +9,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <termios.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #include "client.h"
 #include "ipc.h"
@@ -19,7 +22,8 @@
 #define CONNECTION_RETRY_ATTEMPTS 10
 #define CONNECTION_RETRY_SLEEP_MS 100
 #define MAX_SERVERS 20
-#define MAX_SERVERS 20
+#define MAX_FILES 50
+#define SAVED_DIR "saved"
 
 // Názvy budú dynamicky načítané podľa výberu servera
 // static const char *SHM_NAME = "/pos_shm";
@@ -144,6 +148,76 @@ static int select_server(char *shm_name, char *sock_path)
     // Skopíruj vybraté info
     strcpy(shm_name, servers[choice - 1].shm_name);
     strcpy(sock_path, servers[choice - 1].sock_path);
+    
+    return 0;
+}
+
+static int list_result_files(char filenames[][256], int max_files)
+{
+    DIR *dir = opendir(SAVED_DIR);
+    if (!dir) {
+        // Ak priečinok neexistuje, vytvor ho
+        mkdir(SAVED_DIR, 0755);
+        dir = opendir(SAVED_DIR);
+        if (!dir) {
+            printf("Error: Could not open or create '%s' directory.\n", SAVED_DIR);
+            return 0;
+        }
+    }
+    
+    int count = 0;
+    struct dirent *entry;
+    
+    while ((entry = readdir(dir)) != NULL && count < max_files) {
+        // Filtruj len .txt súbory
+        const char *name = entry->d_name;
+        size_t len = strlen(name);
+        
+        if (len > 4 && strcmp(name + len - 4, ".txt") == 0) {
+            strncpy(filenames[count], name, 255);
+            filenames[count][255] = '\0';
+            count++;
+        }
+    }
+    
+    closedir(dir);
+    return count;
+}
+
+static int select_result_file(char *selected_file)
+{
+    char filenames[MAX_FILES][256];
+    int count = list_result_files(filenames, MAX_FILES);
+    
+    if (count == 0) {
+        printf("\n[Client] No .txt files found in '%s/' directory.\n", SAVED_DIR);
+        printf("Please create a simulation first to generate result files.\n");
+        sleep(2);
+        return -1;
+    }
+    
+    disable_raw_mode();
+    
+    print_header();
+    printf("Available result files in '%s/':\n\n", SAVED_DIR);
+    for (int i = 0; i < count; i++) {
+        printf("  [%d] %s\n", i + 1, filenames[i]);
+    }
+    printf("\nSelect file [1-%d]: ", count);
+    
+    int choice;
+    if (scanf("%d", &choice) != 1 || choice < 1 || choice > count) {
+        printf("Invalid choice.\n");
+        while (getchar() != '\n');
+        enable_raw_mode();
+        return -1;
+    }
+    while (getchar() != '\n');
+    
+    enable_raw_mode();
+    
+    // Skopíruj vybraný súbor
+    strcpy(selected_file, filenames[choice - 1]);
     
     return 0;
 }
@@ -475,6 +549,7 @@ int client_run(void)
         print_header();
         printf("[ 1 ] New simulation (starts server)\n");
         printf("[ 2 ] Connect to an existing simulation\n");
+        printf("[ 3 ] Resume previous simulation\n");
         printf("[ESC] Exit\n");
 
         // Čítaj znak priamo (BEZ Enter)
@@ -486,7 +561,7 @@ int client_run(void)
             return 0;
         }
 
-        if (choice != '1' && choice != '2') {
+        if (choice != '1' && choice != '2' && choice != '3') {
             printf("\nInvalid option.\n");
             sleep(1);
             continue;
@@ -514,6 +589,59 @@ int client_run(void)
             sleep(2);  // Počkaj na spustenie servera
             
             // Automaticky sa pripoj na novo vytvorený server (posledný v zozname)
+            if (get_latest_server(shm_name, sock_path) != 0) {
+                printf("[Client] Failed to get server info.\n");
+                sleep(2);
+                continue;
+            }
+        } else if (choice == '3') {
+            // Načítanie predchádzajúcej simulácie
+            char resume_file[256];
+            if (select_result_file(resume_file) != 0) {
+                printf("Error: Failed to select file.\n");
+                sleep(2);
+                continue;
+            }
+            
+            disable_raw_mode();
+            print_header();
+            printf("Selected file: %s\n\n", resume_file);
+            
+            int additional_reps;
+            printf("Number of additional replications: ");
+            if (scanf("%d", &additional_reps) != 1 || additional_reps <= 0) {
+                printf("Error: Invalid number of replications.\n");
+                enable_raw_mode();
+                sleep(2);
+                continue;
+            }
+            
+            char output_file[256];
+            printf("Output file name: ");
+            if (scanf("%255s", output_file) != 1) {
+                printf("Error: Invalid filename.\n");
+                enable_raw_mode();
+                sleep(2);
+                continue;
+            }
+            
+            while (getchar() != '\n');
+            enable_raw_mode();
+            
+            // Spusti server s parametrom na načítanie
+            char cmd[1024];
+            snprintf(cmd, sizeof(cmd), "./server -l %s -r %d -o %s >/dev/null 2>&1 &",
+                     resume_file, additional_reps, output_file);
+            
+            printf("\nResuming simulation...\n");
+            if (system(cmd) == -1) {
+                printf("Error: Failed to start server.\n");
+                sleep(2);
+                continue;
+            }
+            printf("[Client] Server started in the background.\n");
+            sleep(2);
+            
             if (get_latest_server(shm_name, sock_path) != 0) {
                 printf("[Client] Failed to get server info.\n");
                 sleep(2);
