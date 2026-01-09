@@ -13,8 +13,9 @@
 #include "ipc.h"
 #include "world.h"
 
-static const char *SHM_NAME = "/pos_shm";
-static const char *SOCK_PATH = "/tmp/pos_socket";
+// Názvy budú dynamicky načítané podľa výberu servera
+// static const char *SHM_NAME = "/pos_shm";
+// static const char *SOCK_PATH = "/tmp/pos_socket";
 
 static volatile sig_atomic_t stop_flag = 0;
 static struct termios orig_termios;
@@ -61,6 +62,82 @@ static void print_header(void)
     printf("\n==============================\n");
     printf("   RANDOM WALKER - CLIENT\n");
     printf("==============================\n");
+}
+
+typedef struct ServerInfo {
+    int pid;
+    char shm_name[64];
+    char sock_path[128];
+} ServerInfo;
+
+static int list_available_servers(ServerInfo servers[], int max_servers)
+{
+    FILE *info = fopen("/tmp/pos_server_list.txt", "r");
+    if (!info) return 0;
+    
+    int count = 0;
+    while (count < max_servers && 
+           fscanf(info, "PID=%d SHM=%63s SOCK=%127s\n", 
+                  &servers[count].pid, 
+                  servers[count].shm_name, 
+                  servers[count].sock_path) == 3) {
+        count++;
+    }
+    fclose(info);
+    return count;
+}
+
+static int get_latest_server(char *shm_name, char *sock_path)
+{
+    ServerInfo servers[20];
+    int count = list_available_servers(servers, 20);
+    
+    if (count == 0) {
+        return -1;
+    }
+    
+    // Vráť posledný (najnovší) server zo zoznamu
+    strcpy(shm_name, servers[count - 1].shm_name);
+    strcpy(sock_path, servers[count - 1].sock_path);
+    return 0;
+}
+
+static int select_server(char *shm_name, char *sock_path)
+{
+    ServerInfo servers[20];
+    int count = list_available_servers(servers, 20);
+    
+    if (count == 0) {
+        printf("\n[Client] No active servers found.\n");
+        printf("Please start a new simulation first.\n");
+        sleep(2);
+        return -1;
+    }
+    
+    disable_raw_mode();
+    
+    print_header();
+    printf("Available servers:\n\n");
+    for (int i = 0; i < count; i++) {
+        printf("  [%d] Server PID: %d\n", i + 1, servers[i].pid);
+    }
+    printf("\nSelect server [1-%d]: ", count);
+    
+    int choice;
+    if (scanf("%d", &choice) != 1 || choice < 1 || choice > count) {
+        while (getchar() != '\n');
+        enable_raw_mode();
+        return -1;
+    }
+    while (getchar() != '\n');
+    
+    enable_raw_mode();
+    
+    // Skopíruj vybraté info
+    strcpy(shm_name, servers[choice - 1].shm_name);
+    strcpy(sock_path, servers[choice - 1].sock_path);
+    
+    return 0;
 }
 
 typedef struct SimParams {
@@ -331,6 +408,7 @@ static int start_server_process(const SimParams *params)
 {
     if (!params) return -1;
     
+    // Vytvor príkaz na spustenie servera
     char cmd[1024];
     int n = snprintf(cmd, sizeof(cmd), "./server -r %d -k %d -p %.3f %.3f %.3f %.3f -o %s",
                      params->replications,
@@ -406,6 +484,10 @@ int client_run(void)
             continue;
         }
 
+        // Získaj IPC názvy
+        char shm_name[64];
+        char sock_path[128];
+        
         if (choice == '1') {
             SimParams params;
             if (get_simulation_params(&params) != 0) {
@@ -421,11 +503,25 @@ int client_run(void)
                 continue;
             }
             printf("[Client] Server started in the background.\n");
-            sleep(1);
+            sleep(2);  // Počkaj na spustenie servera
+            
+            // Automaticky sa pripoj na novo vytvorený server (posledný v zozname)
+            if (get_latest_server(shm_name, sock_path) != 0) {
+                printf("[Client] Failed to get server info.\n");
+                sleep(2);
+                continue;
+            }
+        } else {
+            // Vyber zo zoznamu existujúcich serverov
+            if (select_server(shm_name, sock_path) != 0) {
+                printf("[Client] Failed to select server.\n");
+                sleep(2);
+                continue;
+            }
         }
 
         printf("[Client] Connecting to server...\n");
-        int sock_fd = connect_with_retries(SOCK_PATH, 50, 100);
+        int sock_fd = connect_with_retries(sock_path, 50, 100);
         if (sock_fd < 0) {
             printf("[Client] Failed to connect to the server socket.\n");
             sleep(2);
@@ -434,7 +530,7 @@ int client_run(void)
 
         send_cmd(sock_fd, "PING\n");
 
-        IPCShared *ipc = open_shm_with_retries(SHM_NAME, 50, 100);
+        IPCShared *ipc = open_shm_with_retries(shm_name, 50, 100);
         if (!ipc) {
             printf("[Client] Failed to open shared memory.\n");
             ipc_close_socket(sock_fd);

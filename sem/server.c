@@ -6,19 +6,27 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <string.h>
+#include <sys/select.h>
+#include <sys/time.h>
 
 #include "server.h"
 #include "walker.h"
 #include "world.h"
 #include "ipc.h"
 
-static const char *SHM_NAME = "/pos_shm";
-static const char *SOCK_PATH = "/tmp/pos_socket";
+// Názvy budú dynamicky generované podľa PID
+// static const char *SHM_NAME = "/pos_shm";
+// static const char *SOCK_PATH = "/tmp/pos_socket";
 
 typedef struct ClientConn {
     int fd;
     SharedState *S;
 } ClientConn;
+
+typedef struct SocketThreadArgs {
+    SharedState *S;
+    char *sock_path;
+} SocketThreadArgs;
 
 static int clamp_world_size(const SharedState *S)
 {
@@ -133,9 +141,16 @@ static void *client_handler_thread(void *arg)
 
 static void *socket_thread(void *arg)
 {
-    SharedState *S = (SharedState *)arg;
-    int listen_fd = ipc_listen_socket(SOCK_PATH);
-    if (listen_fd < 0) return NULL;
+    SocketThreadArgs *args = (SocketThreadArgs *)arg;
+    SharedState *S = args->S;
+    char *sock_path = args->sock_path;
+    
+    int listen_fd = ipc_listen_socket(sock_path);
+    if (listen_fd < 0) {
+        free(sock_path);
+        free(args);
+        return NULL;
+    }
 
     while (1) {
         pthread_mutex_lock(&S->lock);
@@ -143,28 +158,40 @@ static void *socket_thread(void *arg)
         pthread_mutex_unlock(&S->lock);
         if (finished) break;
 
-        int cfd = ipc_accept_socket(listen_fd);
-        if (cfd >= 0) {
-            // po prijatí spojenia spusti obsluhu v novom vlákne
-            ClientConn *ctx = malloc(sizeof(ClientConn));
-            if (!ctx) {
-                const char msg[] = "ERR no mem\n";
-                write(cfd, msg, sizeof(msg) - 1);
-                ipc_close_socket(cfd);
-            } else {
-                ctx->fd = cfd;
-                ctx->S = S;
-                pthread_t th;
-                pthread_create(&th, NULL, client_handler_thread, ctx);
-                pthread_detach(th);
+        // Použi select s timeoutom, aby sa accept() neblokovalo natrvalo
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(listen_fd, &read_fds);
+        
+        struct timeval timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 100000; // 100ms
+        
+        int ret = select(listen_fd + 1, &read_fds, NULL, NULL, &timeout);
+        if (ret > 0 && FD_ISSET(listen_fd, &read_fds)) {
+            int cfd = ipc_accept_socket(listen_fd);
+            if (cfd >= 0) {
+                // po prijatí spojenia spusti obsluhu v novom vlákne
+                ClientConn *ctx = malloc(sizeof(ClientConn));
+                if (!ctx) {
+                    const char msg[] = "ERR no mem\n";
+                    write(cfd, msg, sizeof(msg) - 1);
+                    ipc_close_socket(cfd);
+                } else {
+                    ctx->fd = cfd;
+                    ctx->S = S;
+                    pthread_t th;
+                    pthread_create(&th, NULL, client_handler_thread, ctx);
+                    pthread_detach(th);
+                }
             }
-        } else {
-            usleep(50000);
         }
     }
 
     ipc_close_socket(listen_fd);
-    unlink(SOCK_PATH);
+    unlink(sock_path);
+    free(sock_path);
+    free(args);
     return NULL;
 }
 
@@ -173,6 +200,20 @@ int server_run(const ServerConfig *config)
     if (!config) return 1;
     
     srand(time(NULL));
+    
+    // Generuj unikátne názvy pre IPC na základe PID
+    pid_t pid = getpid();
+    char shm_name[64];
+    char sock_path[128];
+    snprintf(shm_name, sizeof(shm_name), "/pos_shm_%d", pid);
+    snprintf(sock_path, sizeof(sock_path), "/tmp/pos_socket_%d", pid);
+    
+    // Zapíš info do súboru pre klientov
+    FILE *info_file = fopen("/tmp/pos_server_list.txt", "a");
+    if (info_file) {
+        fprintf(info_file, "PID=%d SHM=%s SOCK=%s\n", pid, shm_name, sock_path);
+        fclose(info_file);
+    }
 
     SharedState S;
     memset(&S, 0, sizeof(S));
@@ -209,9 +250,12 @@ int server_run(const ServerConfig *config)
     printf("  probabilities = %.2f/%.2f/%.2f/%.2f\n", S.prob.up, S.prob.down, S.prob.left, S.prob.right);
     printf("  obstacles = %s\n", S.use_obstacles ? config->obstacles_file : "none");
     printf("  output = %s\n", config->output_file[0] ? config->output_file : "(none)");
+    printf("  Server PID = %d\n", pid);
+    printf("  SHM name = %s\n", shm_name);
+    printf("  Socket path = %s\n", sock_path);
 
     IPCShared *ipc = NULL;
-    if (ipc_create_shared(SHM_NAME, &ipc) != 0) {
+    if (ipc_create_shared(shm_name, &ipc) != 0) {
         printf("Chyba: nepodarilo sa vytvoriť zdieľanú pamäť.\n");
         return 1;
     }
@@ -225,7 +269,7 @@ int server_run(const ServerConfig *config)
             printf("Failed to load obstacles. Exiting.\n");
             free_world(&S);
             ipc_close_shared(ipc);
-            ipc_unlink_shared(SHM_NAME);
+            ipc_unlink_shared(shm_name);
             return 1;
         }
     }
@@ -239,10 +283,22 @@ int server_run(const ServerConfig *config)
 
     pthread_mutex_init(&S.lock, NULL);
 
+    // Priprav argumenty pre socket thread
+    SocketThreadArgs *sock_args = malloc(sizeof(SocketThreadArgs));
+    if (!sock_args) {
+        printf("Chyba: nepodarilo sa alokovať pamäť pre socket thread.\n");
+        free_world(&S);
+        ipc_close_shared(ipc);
+        ipc_unlink_shared(shm_name);
+        return 1;
+    }
+    sock_args->S = &S;
+    sock_args->sock_path = strdup(sock_path);
+
     pthread_t sim, walk, sock_thr;
     pthread_create(&sim, NULL, simulation_thread, &S);
     pthread_create(&walk, NULL, walker_thread, &S);
-    pthread_create(&sock_thr, NULL, socket_thread, &S);
+    pthread_create(&sock_thr, NULL, socket_thread, sock_args);
 
     bool finished_noted = false;
     struct timespec finish_ts = {0};
@@ -284,7 +340,27 @@ int server_run(const ServerConfig *config)
     free_world(&S);
 
     ipc_close_shared(ipc);
-    ipc_unlink_shared(SHM_NAME);
+    ipc_unlink_shared(shm_name);
+    
+    // Odstráň tento server zo zoznamu
+    FILE *list = fopen("/tmp/pos_server_list.txt", "r");
+    FILE *temp = fopen("/tmp/pos_server_list_temp.txt", "w");
+    if (list && temp) {
+        char line[256];
+        int line_pid;
+        while (fgets(line, sizeof(line), list)) {
+            if (sscanf(line, "PID=%d", &line_pid) == 1 && line_pid != pid) {
+                fputs(line, temp);
+            }
+        }
+        fclose(list);
+        fclose(temp);
+        remove("/tmp/pos_server_list.txt");
+        rename("/tmp/pos_server_list_temp.txt", "/tmp/pos_server_list.txt");
+    } else {
+        if (list) fclose(list);
+        if (temp) fclose(temp);
+    }
 
     return 0;
 }
