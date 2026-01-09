@@ -152,26 +152,29 @@ static void *socket_thread(void *arg)
         return NULL;
     }
 
+    int first_client = 1;
     while (1) {
         pthread_mutex_lock(&S->lock);
         bool finished = S->finished;
         pthread_mutex_unlock(&S->lock);
         if (finished) break;
 
-        // Použi select s timeoutom, aby sa accept() neblokovalo natrvalo
         fd_set read_fds;
         FD_ZERO(&read_fds);
         FD_SET(listen_fd, &read_fds);
-        
         struct timeval timeout;
         timeout.tv_sec = 0;
         timeout.tv_usec = 100000; // 100ms
-        
         int ret = select(listen_fd + 1, &read_fds, NULL, NULL, &timeout);
         if (ret > 0 && FD_ISSET(listen_fd, &read_fds)) {
             int cfd = ipc_accept_socket(listen_fd);
             if (cfd >= 0) {
-                // po prijatí spojenia spusti obsluhu v novom vlákne
+                if (first_client) {
+                    pthread_mutex_lock(&S->lock);
+                    S->client_connected = 1;
+                    pthread_mutex_unlock(&S->lock);
+                    first_client = 0;
+                }
                 ClientConn *ctx = malloc(sizeof(ClientConn));
                 if (!ctx) {
                     const char msg[] = "ERR no mem\n";
@@ -217,6 +220,7 @@ int server_run(const ServerConfig *config)
 
     SharedState S;
     memset(&S, 0, sizeof(S));
+    memset(&S, 0, sizeof(S));
 
     // Použiť konfiguráciu z parametrov
     if (config->obstacles_file[0] != '\0') {
@@ -242,6 +246,7 @@ int server_run(const ServerConfig *config)
     S.mode = 1;
     S.summary_view = 0;
     S.finished = false;
+    S.client_connected = 0;
 
     printf("Starting simulation:\n");
     printf("  world_size = %d\n", S.world_size);
@@ -295,10 +300,23 @@ int server_run(const ServerConfig *config)
     sock_args->S = &S;
     sock_args->sock_path = strdup(sock_path);
 
+
     pthread_t sim, walk, sock_thr;
+    pthread_create(&sock_thr, NULL, socket_thread, sock_args);
+
+    // Čakaj na pripojenie klienta
+    printf("[Server] Waiting for client to connect before starting simulation...\n");
+    while (1) {
+        pthread_mutex_lock(&S.lock);
+        int connected = S.client_connected;
+        pthread_mutex_unlock(&S.lock);
+        if (connected) break;
+        usleep(100000);
+    }
+    printf("[Server] Client connected! Starting simulation...\n");
+
     pthread_create(&sim, NULL, simulation_thread, &S);
     pthread_create(&walk, NULL, walker_thread, &S);
-    pthread_create(&sock_thr, NULL, socket_thread, sock_args);
 
     bool finished_noted = false;
     struct timespec finish_ts = {0};

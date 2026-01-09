@@ -42,6 +42,8 @@ typedef struct SharedState {
 
     struct IPCShared *ipc; // ukazovatel na zdieľanú pamäť (nastaví server)
 
+    volatile int client_connected; // 0 = čaká, 1 = klient pripojený
+
 } SharedState;
 
 void* simulation_thread(void *arg);
