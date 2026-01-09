@@ -13,6 +13,7 @@ static void print_usage(const char *prog)
     printf("  -k STEPS      Maximálny počet krokov K (napr. 100)\n");
     printf("  -p U D L R    Pravdepodobnosti (hore dole vľavo vpravo)\n");
     printf("  -f FILE       Súbor s prekážkami\n");
+    printf("  -l FILE       Načítať predchádzajúcu simuláciu\n");
     printf("  -o FILE       Výstupný súbor\n");
     printf("  -h            Zobraz túto pomoc\n");
 }
@@ -32,9 +33,10 @@ int main(int argc, char *argv[])
     config.prob_right = 0.25;
     config.obstacles_file[0] = '\0';
     config.output_file[0] = '\0';
+    config.resume_file[0] = '\0';
     
     int opt;
-    while ((opt = getopt(argc, argv, "s:r:k:p:f:o:h")) != -1) {
+    while ((opt = getopt(argc, argv, "s:r:k:p:f:l:o:h")) != -1) {
         switch (opt) {
             case 's':
                 config.world_size = atoi(optarg);
@@ -55,6 +57,9 @@ int main(int argc, char *argv[])
                 break;
             case 'f':
                 strncpy(config.obstacles_file, optarg, sizeof(config.obstacles_file) - 1);
+                break;
+            case 'l':
+                strncpy(config.resume_file, optarg, sizeof(config.resume_file) - 1);
                 break;
             case 'o':
                 strncpy(config.output_file, optarg, sizeof(config.output_file) - 1);

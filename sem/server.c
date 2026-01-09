@@ -216,27 +216,49 @@ int server_run(const ServerConfig *config)
     SharedState S;
     memset(&S, 0, sizeof(S));
 
-    // Použiť konfiguráciu z parametrov
-    if (config->obstacles_file[0] != '\0') {
-        int size_from_file = get_world_size_from_obstacles(config->obstacles_file);
-        if (size_from_file > 0) {
-            S.use_obstacles = true;
-            S.world_size = size_from_file;
-        } else {
-            printf("Chyba: Nepodarilo sa načítať súbor s prekážkami '%s'.\n", config->obstacles_file);
+    // Ak je zadaný resume_file, načítaj predchádzajúcu simuláciu
+    if (config->resume_file[0] != '\0') {
+        printf("[Server] Loading previous simulation from '%s'...\n", config->resume_file);
+        if (!load_previous_simulation(&S, config->resume_file)) {
+            printf("[Server] Failed to load simulation. Exiting.\n");
             return 1;
         }
+        
+        // Ulož počiatočný počet replikácií (už vykonaných)
+        int previous_reps = S.replications;
+        
+        // Pripočítaj nové replikácie z config
+        S.replications = previous_reps + config->replications;
+        S.current_rep = previous_reps;
+        
+        printf("[Server] Previous replications: %d\n", previous_reps);
+        printf("[Server] Additional replications: %d\n", config->replications);
+        printf("[Server] Total replications: %d\n", S.replications);
+        
+        // IPC setup bude nižšie
     } else {
-        S.use_obstacles = false;
-        S.world_size = config->world_size;
-    }
+        // Nová simulácia - použiť konfiguráciu z parametrov
+        if (config->obstacles_file[0] != '\0') {
+            int size_from_file = get_world_size_from_obstacles(config->obstacles_file);
+            if (size_from_file > 0) {
+                S.use_obstacles = true;
+                S.world_size = size_from_file;
+            } else {
+                printf("Chyba: Nepodarilo sa načítať súbor s prekážkami '%s'.\n", config->obstacles_file);
+                return 1;
+            }
+        } else {
+            S.use_obstacles = false;
+            S.world_size = config->world_size;
+        }
 
-    S.replications = config->replications;
-    S.max_steps = config->max_steps;
-    S.prob.up = config->prob_up;
-    S.prob.down = config->prob_down;
-    S.prob.left = config->prob_left;
-    S.prob.right = config->prob_right;
+        S.replications = config->replications;
+        S.max_steps = config->max_steps;
+        S.prob.up = config->prob_up;
+        S.prob.down = config->prob_down;
+        S.prob.left = config->prob_left;
+        S.prob.right = config->prob_right;
+    }
     S.mode = 2;
     S.summary_view = 0;
     S.finished = false;
@@ -260,20 +282,25 @@ int server_run(const ServerConfig *config)
     }
     S.ipc = ipc;
 
-    allocate_world(&S);
-    initialize_world(&S);
+    // Ak nebol načítaný resume (už má allocate_world), alokuj pamäť
+    if (config->resume_file[0] == '\0') {
+        allocate_world(&S);
+        initialize_world(&S);
 
-    if (S.use_obstacles) {
-        if (!load_obstacles(&S, config->obstacles_file)) {
-            printf("Failed to load obstacles. Exiting.\n");
-            free_world(&S);
-            ipc_close_shared(ipc);
-            ipc_unlink_shared(shm_name);
-            return 1;
+        if (S.use_obstacles) {
+            if (!load_obstacles(&S, config->obstacles_file)) {
+                printf("Failed to load obstacles. Exiting.\\n");
+                free_world(&S);
+                ipc_close_shared(ipc);
+                ipc_unlink_shared(shm_name);
+                return 1;
+            }
         }
     }
 
-    S.current_rep = 0;
+    if (config->resume_file[0] == '\0') {
+        S.current_rep = 0;
+    }
     walker_init(&S.walker, S.world_size/2, S.world_size/2);
     
     // Synchronizuj celý stav do IPC naraz
@@ -347,6 +374,16 @@ int server_run(const ServerConfig *config)
     pthread_join(sock_thr, NULL);
 
     pthread_mutex_destroy(&S.lock);
+
+    // Ulož výsledky do súboru
+    if (config->output_file[0] != '\0') {
+        printf("[Server] Saving results to '%s'...\n", config->output_file);
+        if (save_simulation_results(&S, config->output_file)) {
+            printf("[Server] Results saved successfully.\n");
+        } else {
+            printf("[Server] Failed to save results.\n");
+        }
+    }
 
     free_world(&S);
 

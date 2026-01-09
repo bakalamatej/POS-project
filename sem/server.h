@@ -13,6 +13,7 @@ typedef struct ServerConfig {
     double prob_right;
     char obstacles_file[256];
     char output_file[256];
+    char resume_file[256];
 } ServerConfig;
 
 // Spusti serverovu cast simulacie (povodna logika z main.c)

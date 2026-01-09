@@ -66,7 +66,10 @@ void* simulation_thread(void *arg)
 {
     SharedState *S = arg;
 
-    for (int r = 0; r < S->replications; r++) {
+    // Pre resume: začni od current_rep (už vykonaných replikácií)
+    int start_rep = S->current_rep;
+    
+    for (int r = start_rep; r < S->replications; r++) {
 
         for (int y = 0; y < S->world_size; y++) {
             for (int x = 0; x < S->world_size; x++) {
