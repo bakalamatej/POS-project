@@ -1,9 +1,14 @@
 #define _POSIX_C_SOURCE 200809L
+#define _XOPEN_SOURCE 500
 #include <unistd.h>
 #include <time.h>
 #include "simulation.h"
 #include "walker.h"
 #include "ipc.h"
+
+// Konštanty pre timeouty
+#define WALKER_UPDATE_INTERVAL_MS 300
+#define WALKER_SLEEP_INTERVAL_US 1000
 
 static int clamp_world_size(const SharedState *S)
 {

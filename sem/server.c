@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#define _XOPEN_SOURCE 500
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -13,6 +14,12 @@
 #include "walker.h"
 #include "world.h"
 #include "ipc.h"
+
+// Konštanty pre timeouty a intervaly
+#define SELECT_TIMEOUT_MS 100
+#define SOCKET_POLL_INTERVAL_MS 50
+#define MAIN_LOOP_INTERVAL_MS 100
+#define SERVER_SHUTDOWN_DELAY_MS 2000
 
 // Názvy budú dynamicky generované podľa PID
 // static const char *SHM_NAME = "/pos_shm";
@@ -34,39 +41,18 @@ static int clamp_world_size(const SharedState *S)
     return (S->world_size < IPC_MAX_WORLD) ? S->world_size : IPC_MAX_WORLD;
 }
 
-static void copy_obstacles_to_ipc(SharedState *S)
+// Zlúčená funkcia pre synchronizáciu všetkých dát do IPC
+static void sync_full_state_to_ipc(SharedState *S)
 {
     if (!S || !S->ipc) return;
     int n = clamp_world_size(S);
+    
+    // Základné informácie
     S->ipc->world_size = n;
-    for (int y = 0; y < n; y++) {
-        for (int x = 0; x < n; x++) {
-            S->ipc->obstacles[y][x] = S->obstacles[y][x];
-        }
-    }
-}
-
-static void copy_summary_to_ipc(SharedState *S)
-{
-    if (!S || !S->ipc) return;
-    int n = clamp_world_size(S);
-    for (int y = 0; y < n; y++) {
-        for (int x = 0; x < n; x++) {
-            S->ipc->total_steps[y][x] = S->total_steps[y][x];
-            S->ipc->success_count[y][x] = S->success_count[y][x];
-        }
-    }
-}
-
-static void update_ipc_basic(SharedState *S)
-{
-    if (!S || !S->ipc) return;
-    int n = clamp_world_size(S);
     int wx = S->walker.x;
     int wy = S->walker.y;
     if (wx >= n) wx %= n;
     if (wy >= n) wy %= n;
-    S->ipc->world_size = n;
     S->ipc->walker_x = wx;
     S->ipc->walker_y = wy;
     S->ipc->mode = S->mode;
@@ -74,6 +60,15 @@ static void update_ipc_basic(SharedState *S)
     S->ipc->current_rep = S->current_rep;
     S->ipc->replications = S->replications;
     S->ipc->finished = S->finished ? 1 : 0;
+    
+    // Prekážky a štatistiky
+    for (int y = 0; y < n; y++) {
+        for (int x = 0; x < n; x++) {
+            S->ipc->obstacles[y][x] = S->obstacles[y][x];
+            S->ipc->total_steps[y][x] = S->total_steps[y][x];
+            S->ipc->success_count[y][x] = S->success_count[y][x];
+        }
+    }
 }
 
 static void send_str(int fd, const char *msg)
@@ -107,25 +102,25 @@ static void *client_handler_thread(void *arg)
         } else if (strncmp(buf, "MODE 1", 6) == 0) {
             pthread_mutex_lock(&S->lock);
             S->mode = 1;
-            update_ipc_basic(S);
+            sync_full_state_to_ipc(S);
             pthread_mutex_unlock(&S->lock);
             send_str(fd, "OK\n");
         } else if (strncmp(buf, "MODE 2", 6) == 0) {
             pthread_mutex_lock(&S->lock);
             S->mode = 2;
-            update_ipc_basic(S);
+            sync_full_state_to_ipc(S);
             pthread_mutex_unlock(&S->lock);
             send_str(fd, "OK\n");
         } else if (strncmp(buf, "SUMMARY 0", 10) == 0) {
             pthread_mutex_lock(&S->lock);
             S->summary_view = 0;
-            update_ipc_basic(S);
+            sync_full_state_to_ipc(S);
             pthread_mutex_unlock(&S->lock);
             send_str(fd, "OK\n");
         } else if (strncmp(buf, "SUMMARY 1", 10) == 0) {
             pthread_mutex_lock(&S->lock);
             S->summary_view = 1;
-            update_ipc_basic(S);
+            sync_full_state_to_ipc(S);
             pthread_mutex_unlock(&S->lock);
             send_str(fd, "OK\n");
         } else {
@@ -164,7 +159,7 @@ static void *socket_thread(void *arg)
         FD_SET(listen_fd, &read_fds);
         struct timeval timeout;
         timeout.tv_sec = 0;
-        timeout.tv_usec = 100000; // 100ms
+        timeout.tv_usec = SELECT_TIMEOUT_MS * 1000;
         int ret = select(listen_fd + 1, &read_fds, NULL, NULL, &timeout);
         if (ret > 0 && FD_ISSET(listen_fd, &read_fds)) {
             int cfd = ipc_accept_socket(listen_fd);
@@ -220,7 +215,6 @@ int server_run(const ServerConfig *config)
 
     SharedState S;
     memset(&S, 0, sizeof(S));
-    memset(&S, 0, sizeof(S));
 
     // Použiť konfiguráciu z parametrov
     if (config->obstacles_file[0] != '\0') {
@@ -243,7 +237,7 @@ int server_run(const ServerConfig *config)
     S.prob.down = config->prob_down;
     S.prob.left = config->prob_left;
     S.prob.right = config->prob_right;
-    S.mode = 1;
+    S.mode = 2;
     S.summary_view = 0;
     S.finished = false;
     S.client_connected = 0;
@@ -279,12 +273,11 @@ int server_run(const ServerConfig *config)
         }
     }
 
-    copy_obstacles_to_ipc(&S);
-    copy_summary_to_ipc(&S);
-
     S.current_rep = 0;
     walker_init(&S.walker, S.world_size/2, S.world_size/2);
-    update_ipc_basic(&S);
+    
+    // Synchronizuj celý stav do IPC naraz
+    sync_full_state_to_ipc(&S);
 
     pthread_mutex_init(&S.lock, NULL);
 
@@ -335,18 +328,18 @@ int server_run(const ServerConfig *config)
                 clock_gettime(CLOCK_MONOTONIC, &now);
                 long elapsed_ms = (now.tv_sec - finish_ts.tv_sec) * 1000 +
                                   (now.tv_nsec - finish_ts.tv_nsec) / 1000000;
-                if (elapsed_ms > 2000) {
+                if (elapsed_ms > SERVER_SHUTDOWN_DELAY_MS) {
                     break;
                 }
             }
         }
 
-        usleep(100000);
+        usleep(MAIN_LOOP_INTERVAL_MS * 1000);
     }
 
     pthread_mutex_lock(&S.lock);
     S.finished = true;
-    update_ipc_basic(&S);
+    sync_full_state_to_ipc(&S);
     pthread_mutex_unlock(&S.lock);
 
     pthread_join(sim, NULL);

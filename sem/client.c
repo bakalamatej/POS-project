@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#define _XOPEN_SOURCE 500
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
@@ -12,6 +13,13 @@
 #include "client.h"
 #include "ipc.h"
 #include "world.h"
+
+// Konštanty pre timeouty a intervaly
+#define RENDER_INTERVAL_MS 100
+#define CONNECTION_RETRY_ATTEMPTS 10
+#define CONNECTION_RETRY_SLEEP_MS 100
+#define MAX_SERVERS 20
+#define MAX_SERVERS 20
 
 // Názvy budú dynamicky načítané podľa výberu servera
 // static const char *SHM_NAME = "/pos_shm";
@@ -89,8 +97,8 @@ static int list_available_servers(ServerInfo servers[], int max_servers)
 
 static int get_latest_server(char *shm_name, char *sock_path)
 {
-    ServerInfo servers[20];
-    int count = list_available_servers(servers, 20);
+    ServerInfo servers[MAX_SERVERS];
+    int count = list_available_servers(servers, MAX_SERVERS);
     
     if (count == 0) {
         return -1;
@@ -104,8 +112,8 @@ static int get_latest_server(char *shm_name, char *sock_path)
 
 static int select_server(char *shm_name, char *sock_path)
 {
-    ServerInfo servers[20];
-    int count = list_available_servers(servers, 20);
+    ServerInfo servers[MAX_SERVERS];
+    int count = list_available_servers(servers, MAX_SERVERS);
     
     if (count == 0) {
         printf("\n[Client] No active servers found.\n");
@@ -373,7 +381,7 @@ static void *render_thread(void *arg)
             printf("\n[Client] Simulation completed. Press [ESC] to disconnect.\n");
         }
 
-        struct timespec ts = {0, 300 * 1000000L};
+        struct timespec ts = {0, RENDER_INTERVAL_MS * 1000000L};
         nanosleep(&ts, NULL);
     }
     return NULL;
