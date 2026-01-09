@@ -116,9 +116,7 @@ static int select_server(char *shm_name, char *sock_path)
     int count = list_available_servers(servers, MAX_SERVERS);
     
     if (count == 0) {
-        printf("\n[Client] No active servers found.\n");
-        printf("Please start a new simulation first.\n");
-        sleep(2);
+        printf("\nNo active servers found. Please start a new simulation first.\n \n");
         return -1;
     }
     
@@ -166,6 +164,7 @@ typedef struct ClientCtx {
     IPCShared *ipc;
     int summary_view;          // Lokálny summary_view pre tohto klienta
     pthread_mutex_t view_lock; // Lock pre summary_view
+    int server_pid;            // PID servera
 } ClientCtx;
 
 static int get_simulation_params(SimParams *params)
@@ -315,6 +314,9 @@ static void *render_thread(void *arg)
         pthread_mutex_unlock(&ctx->view_lock);
 
         printf("=== RANDOM WALKER (CLIENT) ===\n");
+        if (ctx->server_pid > 0) {
+            printf("Server PID: %d\n", ctx->server_pid);
+        }
         printf("Mode: %s | Summary view: %s\n",
                (mode == 1) ? "interactive" : "summary",
                (local_view == 0) ? "average steps" : "probability");
@@ -322,7 +324,7 @@ static void *render_thread(void *arg)
         printf("Finished: %s\n", finished ? "yes" : "no");
 
         if (mode == 1) {
-            printf("\nInteractive view (W=walker, *=center, #=obstacle)\n");
+            printf("\nInteractive view (W = walker, * = center, # = obstacle)\n");
             for (int y = 0; y < n; y++) {
                 for (int x = 0; x < n; x++) {
                     if (local_obstacles[y][x]) {
@@ -507,7 +509,7 @@ int client_run(void)
             printf("\nCreating a new simulation...\n");
             if (start_server_process(&params) != 0) {
                 printf("Error: Failed to start server.\n");
-                sleep(2);
+                sleep(3);
                 continue;
             }
             printf("[Client] Server started in the background.\n");
@@ -516,7 +518,7 @@ int client_run(void)
             // Automaticky sa pripoj na novo vytvorený server (posledný v zozname)
             if (get_latest_server(shm_name, sock_path) != 0) {
                 printf("[Client] Failed to get server info.\n");
-                sleep(2);
+                sleep(3);
                 continue;
             }
         } else {
@@ -549,11 +551,16 @@ int client_run(void)
         printf("[Client] Connected to server.\n");
         sleep(1);
 
+        // Extrahuj PID servera zo sock_path
+        int server_pid = 0;
+        sscanf(sock_path, "/tmp/pos_socket_%d", &server_pid);
+
         ClientCtx ctx = {
             .sock_fd = sock_fd,
             .ipc = ipc,
             .summary_view = 0,
-            .view_lock = PTHREAD_MUTEX_INITIALIZER
+            .view_lock = PTHREAD_MUTEX_INITIALIZER,
+            .server_pid = server_pid
         };
 
         pthread_t t_render, t_input;
