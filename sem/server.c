@@ -274,12 +274,12 @@ int server_run(const ServerConfig *config)
     S.client_connected = 0;
 
     printf("Starting simulation:\n");
-    printf("  world_size = %d\n", S.world_size);
-    printf("  replications = %d\n", S.replications);
-    printf("  max_steps = %d\n", S.max_steps);
-    printf("  probabilities = %.2f/%.2f/%.2f/%.2f\n", S.prob.up, S.prob.down, S.prob.left, S.prob.right);
-    printf("  obstacles = %s\n", S.use_obstacles ? config->obstacles_file : "none");
-    printf("  output = %s\n", config->output_file[0] ? config->output_file : "(none)");
+    printf("  World size = %d\n", S.world_size);
+    printf("  Replications = %d\n", S.replications);
+    printf("  Maximum steps = %d\n", S.max_steps);
+    printf("  Move probabilities = %.2f/%.2f/%.2f/%.2f\n", S.prob.up, S.prob.down, S.prob.left, S.prob.right);
+    printf("  Obstacles = %s\n", S.use_obstacles ? config->obstacles_file : "none");
+    printf("  Output file = %s\n", config->output_file[0] ? config->output_file : "(none)");
     printf("  Server PID = %d\n", pid);
     printf("  SHM name = %s\n", shm_name);
     printf("  Socket path = %s\n", sock_path);

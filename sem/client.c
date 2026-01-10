@@ -90,7 +90,7 @@ static int select_server(char *shm_name, char *sock_path)
     int count = count_servers(servers);
     
     if (count == 0) {
-        printf("[Client] No active servers.\n");
+        printf("[Client] No active servers. Returning to menu...\n");
         return -1;
     }
     
@@ -145,7 +145,7 @@ static int select_file(char *selected_file)
     int count = list_files(filenames);
     
     if (count == 0) {
-        printf("[Client] No saved files.\n");
+        printf("[Client] No saved files. \n");
         return -1;
     }
     
@@ -175,7 +175,7 @@ void print_header()
     CLEAR_SCREEN();
     printf("==============================\n"
            "=== RANDOM WALKER - CLIENT ===\n"
-           "==============================\n\n");
+           "==============================\n");
 }
 
 // Bezpečne načíta celé číslo z konzoly.
@@ -231,6 +231,7 @@ static int get_params(SimParams *p)
     if (custom == 1) {
         if (read_doubles("Up Down Left: ", &p->prob_up, &p->prob_down, &p->prob_left) != 0) goto err;
         p->prob_right = 1.0 - (p->prob_up + p->prob_down + p->prob_left);
+        printf("Right probability set to %.2f\n", p->prob_right);
     } else {
         p->prob_up = p->prob_down = p->prob_left = p->prob_right = 0.25;
     }
@@ -305,9 +306,9 @@ static void *render_thread(void *arg)
 
         if (ctx->server_pid > 0)
             printf("Server PID: %d\n", ctx->server_pid);
-        printf("Mode: %s | View: %s | Rep %d/%d | Done: %s\n",
+        printf("Mode: %s | View: %s | Replication %d of %d | Completed: %s\n",
                ipc->mode == 1 ? "interactive" : "summary",
-               local_view == 0 ? "avg" : "prob",
+               local_view == 0 ? "average" : "probability",
                ipc->current_rep, ipc->replications,
                ipc->finished ? "yes" : "no");
 
@@ -323,7 +324,7 @@ static void *render_thread(void *arg)
                 printf("\n");
             }
         } else {
-            printf("\n%s:\n", local_view == 0 ? "Avg" : "Prob(%)");
+            printf("\n%s:\n", local_view == 0 ? "Average steps" : "Probability (%)");
             for (int y = 0; y < n; y++) {
                 for (int x = 0; x < n; x++) {
                     if (ipc->obstacles[y][x]) printf(" ###");
@@ -340,7 +341,7 @@ static void *render_thread(void *arg)
             }
         }
 
-        printf("\n[1]interactive [2]summary [3]view [ESC]exit\n");
+        printf("\n[1] interactive \n[2] summary \n[3] view \n[ESC] exit\n");
         if (ipc->finished) printf("[DONE]\n");
 
         struct timespec ts = {0, RENDER_INTERVAL_MS * 1000000L};
@@ -421,7 +422,10 @@ int client_run(void)
             sleep(1);
             if (get_latest_server(shm_name, sock_path) != 0) continue;
         } else if (choice == '2') {
-            if (select_server(shm_name, sock_path) != 0) continue;
+            if (select_server(shm_name, sock_path) != 0) {
+                sleep(2);
+                continue;
+            }
         } else if (choice == '3') {
             char file[256];
             if (select_file(file) != 0) continue;
@@ -429,7 +433,7 @@ int client_run(void)
             disable_raw_mode(&orig_termios);
             int reps;
             char outf[256];
-            printf("Reps: ");
+            printf("Replications: ");
             if (scanf("%d", &reps) != 1 || reps <= 0) {
                 while (getchar() != '\n');
                 enable_raw_mode(&orig_termios);
@@ -460,14 +464,14 @@ int client_run(void)
 
         sock_fd = connect_retry(sock_path);
         if (sock_fd < 0) {
-            printf("Connect fail.\n");
+            printf("Connection failed.\n");
             sleep(2);
             continue;
         }
 
         ipc = open_shm_retry(shm_name);
         if (!ipc) {
-            printf("SHM fail.\n");
+            printf("Shared memory connection failed.\n");
             ipc_close_socket(sock_fd);
             sleep(2);
             continue;
