@@ -74,7 +74,7 @@ int ipc_listen_socket(const char *path)
 	addr.sun_family = AF_UNIX;
 	strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
 
-	unlink(path); // ensure free
+	unlink(path); 
 
 	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
 		close(fd);

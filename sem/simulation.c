@@ -1,5 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
-#define _XOPEN_SOURCE 500
+#define _XOPEN_SOURCE 700
 #include <unistd.h>
 #include <time.h>
 #include "simulation.h"
@@ -111,6 +111,11 @@ void* walker_thread(void *arg)
 
     int steps = 0;
 
+    int last_wx = -1;
+    int last_wy = -1;
+    int last_mode = -1;
+    int last_view = -1;
+
     struct timespec last, now;
     clock_gettime(CLOCK_MONOTONIC, &last);
 
@@ -129,7 +134,7 @@ void* walker_thread(void *arg)
         long ms = (now.tv_sec - last.tv_sec)*1000 +
                   (now.tv_nsec - last.tv_nsec)/1000000;
 
-        if (ms >= 300) {
+        if (ms >= WALKER_UPDATE_INTERVAL_MS) {
 
             pthread_mutex_lock(&S->lock);
             random_walk(S, &S->walker);
@@ -137,14 +142,27 @@ void* walker_thread(void *arg)
                 int n = clamp_world_size(S);
                 int wx = S->walker.x;
                 int wy = S->walker.y;
+                int mode = S->mode;
+                int view = S->summary_view;
                 if (wx >= n) wx %= n;
                 if (wy >= n) wy %= n;
-                S->ipc->walker_x = wx;
-                S->ipc->walker_y = wy;
-                S->ipc->mode = S->mode;
-                S->ipc->summary_view = S->summary_view;
-                S->ipc->finished = S->finished ? 1 : 0;
-                S->ipc->world_size = n;
+
+                bool changed = (wx != last_wx) || (wy != last_wy) ||
+                               (mode != last_mode) || (view != last_view);
+
+                if (changed) {
+                    S->ipc->walker_x = wx;
+                    S->ipc->walker_y = wy;
+                    S->ipc->mode = mode;
+                    S->ipc->summary_view = view;
+                    S->ipc->finished = S->finished ? 1 : 0;
+                    S->ipc->world_size = n;
+
+                    last_wx = wx;
+                    last_wy = wy;
+                    last_mode = mode;
+                    last_view = view;
+                }
             }
             pthread_mutex_unlock(&S->lock);
 
@@ -152,6 +170,6 @@ void* walker_thread(void *arg)
             steps++;
         }
 
-        usleep(1000);
+        usleep(WALKER_SLEEP_INTERVAL_US);
     }
 }

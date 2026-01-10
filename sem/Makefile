@@ -1,10 +1,10 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c11 -D_POSIX_C_SOURCE=200809L -pthread -lrt
 
-SRCS_COMMON = world.c walker.c simulation.c
+COMMON = world.c walker.c simulation.c ipc.c utils.c
 
-SERVER_SRCS = main_server.c server.c ipc.c $(SRCS_COMMON)
-CLIENT_SRCS = main_client.c client.c ipc.c
+SERVER_SRCS = main_server.c server.c $(COMMON)
+CLIENT_SRCS = main_client.c client.c ipc.c utils.c
 
 TARGET_SERVER = server
 TARGET_CLIENT = client

@@ -22,13 +22,13 @@ typedef struct IPCShared {
 	int success_count[IPC_MAX_WORLD][IPC_MAX_WORLD];
 } IPCShared;
 
-// Zdieľaná pamäť
+// Shered Memory
 int ipc_create_shared(const char *name, IPCShared **out);
 int ipc_open_shared(const char *name, IPCShared **out, bool writeable);
 void ipc_close_shared(IPCShared *ptr);
 int ipc_unlink_shared(const char *name);
 
-// Sockety (UNIX domain)
+// Sockets (UNIX domain)
 int ipc_listen_socket(const char *path);
 int ipc_accept_socket(int listen_fd);
 int ipc_connect_socket(const char *path);

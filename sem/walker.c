@@ -28,7 +28,7 @@ void random_walk(SharedState *S, Walker* w)
         new_x = w->x - 1;
     else
         new_x = w->x + 1;
-
+  
     // Pre svet BEZ prekážok: aplikuj wrap-around
     if (!S->use_obstacles) {
         new_x = (new_x + S->world_size) % S->world_size;

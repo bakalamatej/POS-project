@@ -40,9 +40,11 @@ typedef struct SharedState {
 
     pthread_mutex_t lock;
 
-    struct IPCShared *ipc; // ukazovatel na zdieľanú pamäť (nastaví server)
+    struct IPCShared *ipc;
 
-    volatile int client_connected; // 0 = čaká, 1 = klient pripojený
+    volatile int client_connected; // 0 = waiting, 1 = client connected
+    
+    int active_clients; 
 
 } SharedState;
 

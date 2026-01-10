@@ -16,7 +16,6 @@ typedef struct ServerConfig {
     char resume_file[256];
 } ServerConfig;
 
-// Spusti serverovu cast simulacie (povodna logika z main.c)
 int server_run(const ServerConfig *config);
 
 #endif // SERVER_H

@@ -4,20 +4,6 @@
 #include <string.h>
 #include <getopt.h>
 
-static void print_usage(const char *prog)
-{
-    printf("Použitie: %s [OPTIONS]\n", prog);
-    printf("Možnosti:\n");
-    printf("  -s SIZE       Veľkosť sveta (napr. 10)\n");
-    printf("  -r REPS       Počet replikácií (napr. 1000000)\n");
-    printf("  -k STEPS      Maximálny počet krokov K (napr. 100)\n");
-    printf("  -p U D L R    Pravdepodobnosti (hore dole vľavo vpravo)\n");
-    printf("  -f FILE       Súbor s prekážkami\n");
-    printf("  -l FILE       Načítať predchádzajúcu simuláciu\n");
-    printf("  -o FILE       Výstupný súbor\n");
-    printf("  -h            Zobraz túto pomoc\n");
-}
-
 int main(int argc, char *argv[])
 {
     ServerConfig config;
@@ -47,14 +33,17 @@ int main(int argc, char *argv[])
             case 'k':
                 config.max_steps = atoi(optarg);
                 break;
-            case 'p':
-                if (optind + 3 <= argc) {
-                    config.prob_up = atof(optarg);
-                    config.prob_down = atof(argv[optind++]);
-                    config.prob_left = atof(argv[optind++]);
-                    config.prob_right = atof(argv[optind++]);
+            case 'p': {
+                config.prob_up = atof(optarg);
+                int idx = optind;
+                if (idx + 2 < argc) {
+                    config.prob_down = atof(argv[idx++]);
+                    config.prob_left = atof(argv[idx++]);
+                    config.prob_right = atof(argv[idx++]);
+                    optind = idx;
                 }
                 break;
+            }
             case 'f':
                 strncpy(config.obstacles_file, optarg, sizeof(config.obstacles_file) - 1);
                 break;
@@ -64,12 +53,6 @@ int main(int argc, char *argv[])
             case 'o':
                 strncpy(config.output_file, optarg, sizeof(config.output_file) - 1);
                 break;
-            case 'h':
-                print_usage(argv[0]);
-                return 0;
-            default:
-                print_usage(argv[0]);
-                return 1;
         }
     }
     

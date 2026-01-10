@@ -21,10 +21,6 @@
 #define MAIN_LOOP_INTERVAL_MS 100
 #define SERVER_SHUTDOWN_DELAY_MS 2000
 
-// Názvy budú dynamicky generované podľa PID
-// static const char *SHM_NAME = "/pos_shm";
-// static const char *SOCK_PATH = "/tmp/pos_socket";
-
 typedef struct ClientConn {
     int fd;
     SharedState *S;
@@ -41,31 +37,47 @@ static int clamp_world_size(const SharedState *S)
     return (S->world_size < IPC_MAX_WORLD) ? S->world_size : IPC_MAX_WORLD;
 }
 
-// Zlúčená funkcia pre synchronizáciu všetkých dát do IPC
-static void sync_full_state_to_ipc(SharedState *S)
+// Základné informácie do IPC (bez veľkých polí)
+static void sync_basic_to_ipc(SharedState *S)
 {
     if (!S || !S->ipc) return;
     int n = clamp_world_size(S);
-    
-    // Základné informácie
-    S->ipc->world_size = n;
+
     int wx = S->walker.x;
     int wy = S->walker.y;
     if (wx >= n) wx %= n;
     if (wy >= n) wy %= n;
-    S->ipc->walker_x = wx;
-    S->ipc->walker_y = wy;
-    S->ipc->mode = S->mode;
+
+    S->ipc->world_size   = n;
+    S->ipc->walker_x     = wx;
+    S->ipc->walker_y     = wy;
+    S->ipc->mode         = S->mode;
     S->ipc->summary_view = S->summary_view;
-    S->ipc->current_rep = S->current_rep;
+    S->ipc->current_rep  = S->current_rep;
     S->ipc->replications = S->replications;
-    S->ipc->finished = S->finished ? 1 : 0;
-    
-    // Prekážky a štatistiky
+    S->ipc->finished     = S->finished ? 1 : 0;
+}
+
+// Prekážky kopíruj len zriedka (na začiatku alebo pri zmene)
+static void sync_obstacles_to_ipc(SharedState *S)
+{
+    if (!S || !S->ipc) return;
+    int n = clamp_world_size(S);
     for (int y = 0; y < n; y++) {
         for (int x = 0; x < n; x++) {
             S->ipc->obstacles[y][x] = S->obstacles[y][x];
-            S->ipc->total_steps[y][x] = S->total_steps[y][x];
+        }
+    }
+}
+
+// Štatistiky sú synchronizované zo simulačného vlákna; použijeme len keď treba
+static void sync_stats_to_ipc(SharedState *S)
+{
+    if (!S || !S->ipc) return;
+    int n = clamp_world_size(S);
+    for (int y = 0; y < n; y++) {
+        for (int x = 0; x < n; x++) {
+            S->ipc->total_steps[y][x]   = S->total_steps[y][x];
             S->ipc->success_count[y][x] = S->success_count[y][x];
         }
     }
@@ -84,13 +96,6 @@ static void *client_handler_thread(void *arg)
     SharedState *S = ctx->S;
     char buf[256];
     ssize_t nread;
-    
-    // Zvýš počítadlo klientov
-    pthread_mutex_lock(&S->lock);
-    S->active_clients++;
-    printf("[Server] Client connected. Active clients: %d\n", S->active_clients);
-    pthread_mutex_unlock(&S->lock);
-    
     while (1) {
         pthread_mutex_lock(&S->lock);
         bool finished = S->finished;
@@ -103,44 +108,31 @@ static void *client_handler_thread(void *arg)
         }
         buf[nread] = '\0';
 
-        // očakávame jednoduché textové príkazy
-        if (strncmp(buf, "PING", 4) == 0) {
-            send_str(fd, "PONG\n");
-        } else if (strncmp(buf, "MODE 1", 6) == 0) {
-            pthread_mutex_lock(&S->lock);
-            S->mode = 1;
-            sync_full_state_to_ipc(S);
-            pthread_mutex_unlock(&S->lock);
-            send_str(fd, "OK\n");
-        } else if (strncmp(buf, "MODE 2", 6) == 0) {
-            pthread_mutex_lock(&S->lock);
-            S->mode = 2;
-            sync_full_state_to_ipc(S);
-            pthread_mutex_unlock(&S->lock);
-            send_str(fd, "OK\n");
-        } else if (strncmp(buf, "SUMMARY 0", 10) == 0) {
-            pthread_mutex_lock(&S->lock);
-            S->summary_view = 0;
-            sync_full_state_to_ipc(S);
-            pthread_mutex_unlock(&S->lock);
-            send_str(fd, "OK\n");
-        } else if (strncmp(buf, "SUMMARY 1", 10) == 0) {
-            pthread_mutex_lock(&S->lock);
-            S->summary_view = 1;
-            sync_full_state_to_ipc(S);
-            pthread_mutex_unlock(&S->lock);
-            send_str(fd, "OK\n");
+        char cmd[16];
+        int val = -1;
+
+        if (sscanf(buf, "%15s %d", cmd, &val) == 2) {
+            if (strcmp(cmd, "MODE") == 0 && (val == 1 || val == 2)) {
+                pthread_mutex_lock(&S->lock);
+                S->mode = val;
+                sync_basic_to_ipc(S);
+                pthread_mutex_unlock(&S->lock);
+                send_str(fd, "OK\n");
+            } else if (strcmp(cmd, "SUMMARY") == 0 && (val == 0 || val == 1)) {
+                pthread_mutex_lock(&S->lock);
+                S->summary_view = val;
+                sync_basic_to_ipc(S);
+                pthread_mutex_unlock(&S->lock);
+                send_str(fd, "OK\n");
+            } else {
+                send_str(fd, "ERR\n");
+            }
         } else {
             send_str(fd, "ERR\n");
         }
     }
 
-    // Znížiť počítadlo klientov
-    pthread_mutex_lock(&S->lock);
-    S->active_clients--;
-    printf("[Server] Client disconnected. Active clients: %d\n", S->active_clients);
-    pthread_mutex_unlock(&S->lock);
-    
+    printf("[Server] Klient sa odpojil.\n");
     ipc_close_socket(fd);
     free(ctx);
     return NULL;
@@ -161,16 +153,6 @@ static void *socket_thread(void *arg)
 
     int first_client = 1;
     while (1) {
-        // Kontrola ukončenia: finished == 1 AND active_clients == 0
-        pthread_mutex_lock(&S->lock);
-        bool should_exit = S->finished && (S->active_clients == 0);
-        pthread_mutex_unlock(&S->lock);
-        
-        if (should_exit) {
-            printf("[Server] Simulation finished and no clients connected. Shutting down socket thread.\n");
-            break;
-        }
-        
         pthread_mutex_lock(&S->lock);
         bool finished = S->finished;
         pthread_mutex_unlock(&S->lock);
@@ -284,7 +266,6 @@ int server_run(const ServerConfig *config)
     S.mode = 2;
     S.summary_view = 0;
     S.finished = false;
-    S.active_clients = 0;
     S.client_connected = 0;
 
     printf("Starting simulation:\n");
@@ -327,7 +308,9 @@ int server_run(const ServerConfig *config)
     walker_init(&S.walker, S.world_size/2, S.world_size/2);
     
     // Synchronizuj celý stav do IPC naraz
-    sync_full_state_to_ipc(&S);
+    sync_obstacles_to_ipc(&S);
+    sync_stats_to_ipc(&S);
+    sync_basic_to_ipc(&S);
 
     pthread_mutex_init(&S.lock, NULL);
 
@@ -361,26 +344,35 @@ int server_run(const ServerConfig *config)
     pthread_create(&sim, NULL, simulation_thread, &S);
     pthread_create(&walk, NULL, walker_thread, &S);
 
-    printf("[Server] Simulation running. Server will shut down when finished AND all clients disconnect.\n");
+    bool finished_noted = false;
+    struct timespec finish_ts = {0};
 
-    // Main loop - čaká na dokončenie simulácie A odpojenie všetkých klientov
     while (1) {
         pthread_mutex_lock(&S.lock);
         bool finished = S.finished;
-        int clients = S.active_clients;
         pthread_mutex_unlock(&S.lock);
-        
-        if (finished && clients == 0) {
-            printf("[Server] Simulation finished and all clients disconnected. Shutting down...\n");
-            break;
+
+        if (finished) {
+            if (!finished_noted) {
+                clock_gettime(CLOCK_MONOTONIC, &finish_ts);
+                finished_noted = true;
+            } else {
+                struct timespec now;
+                clock_gettime(CLOCK_MONOTONIC, &now);
+                long elapsed_ms = (now.tv_sec - finish_ts.tv_sec) * 1000 +
+                                  (now.tv_nsec - finish_ts.tv_nsec) / 1000000;
+                if (elapsed_ms > SERVER_SHUTDOWN_DELAY_MS) {
+                    break;
+                }
+            }
         }
-        
+
         usleep(MAIN_LOOP_INTERVAL_MS * 1000);
     }
 
     pthread_mutex_lock(&S.lock);
     S.finished = true;
-    sync_full_state_to_ipc(&S);
+    sync_basic_to_ipc(&S);
     pthread_mutex_unlock(&S.lock);
 
     pthread_join(sim, NULL);

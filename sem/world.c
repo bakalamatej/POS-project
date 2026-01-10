@@ -7,15 +7,6 @@
 
 #define SAVED_DIR "saved"
 
-// Pomocná funkcia na vytvorenie priečinka saved/ ak neexistuje
-static void ensure_saved_directory(void)
-{
-    struct stat st = {0};
-    if (stat(SAVED_DIR, &st) == -1) {
-        mkdir(SAVED_DIR, 0755);
-    }
-}
-
 void allocate_world(SharedState *S)
 {
     S->total_steps = malloc(S->world_size * sizeof(int*));
@@ -121,7 +112,10 @@ int save_simulation_results(SharedState *S, const char* filename)
     }
 
     // Vytvor priečinok saved/ ak neexistuje
-    ensure_saved_directory();
+    struct stat st = {0};
+    if (stat(SAVED_DIR, &st) == -1) {
+        mkdir(SAVED_DIR, 0755);
+    }
 
     // Vytvor celú cestu k súboru
     char filepath[512];
