@@ -12,6 +12,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/select.h>
 
 #include "client.h"
 #include "ipc.h"
@@ -71,9 +72,9 @@ static void enable_raw_mode(void)
 static void print_header(void)
 {
     CLEAR_SCREEN();
-    printf("\n==============================\n");
-    printf("   RANDOM WALKER - CLIENT\n");
-    printf("==============================\n");
+    printf("\n======================================\n");
+    printf("       RANDOM WALKER - CLIENT\n");
+    printf("======================================\n");
 }
 
 typedef struct ServerInfo {
@@ -350,6 +351,9 @@ static void send_cmd(int fd, const char *cmd)
 static void *render_thread(void *arg)
 {
     ClientCtx *ctx = (ClientCtx *)arg;
+    int last_mode = -1;
+    int last_view = -1;
+    
     while (!stop_flag) {
         IPCShared *ipc = ctx->ipc;
         if (!ipc) break;
@@ -380,12 +384,19 @@ static void *render_thread(void *arg)
             }
         }
 
-        CLEAR_SCREEN();
-
         // Získaj lokálny summary_view
         pthread_mutex_lock(&ctx->view_lock);
         int local_view = ctx->summary_view;
         pthread_mutex_unlock(&ctx->view_lock);
+
+        // Clearni iba keď sa zmení mód alebo summary view
+        if (last_mode != mode || last_view != local_view) {
+            CLEAR_SCREEN();
+            last_mode = mode;
+            last_view = local_view;
+        } else {
+            MOVE_CURSOR();  // Presunieme kurzor na začiatok bez čistenia
+        }
 
         printf("=== RANDOM WALKER (CLIENT) ===\n");
         if (ctx->server_pid > 0) {
@@ -470,15 +481,27 @@ static void *input_thread(void *arg)
     while (!stop_flag) {
         char ch = getchar();
         
+        // Skontroluj, či simulácia skončila
+        int finished = 0;
+        if (ctx->ipc) {
+            finished = ctx->ipc->finished;
+        }
+        
         if (ch == '1') {
-            send_cmd(ctx->sock_fd, "MODE 1\n");
+            if (!finished) {
+                send_cmd(ctx->sock_fd, "MODE 1\n");
+            }
         } else if (ch == '2') {
-            send_cmd(ctx->sock_fd, "MODE 2\n");
+            if (!finished) {
+                send_cmd(ctx->sock_fd, "MODE 2\n");
+            }
         } else if (ch == '3') {
-            // Toggle lokálny summary view (len pre tohto klienta)
-            pthread_mutex_lock(&ctx->view_lock);
-            ctx->summary_view = 1 - ctx->summary_view;
-            pthread_mutex_unlock(&ctx->view_lock);
+            // Toggle lokálny summary view iba ak simulácia nebeží
+            if (!finished) {
+                pthread_mutex_lock(&ctx->view_lock);
+                ctx->summary_view = 1 - ctx->summary_view;
+                pthread_mutex_unlock(&ctx->view_lock);
+            }
         } else if (ch == 27) {
             printf("\n[Client] Disconnecting from server...\n");
             stop_flag = 1;

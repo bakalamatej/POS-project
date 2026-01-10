@@ -84,6 +84,13 @@ static void *client_handler_thread(void *arg)
     SharedState *S = ctx->S;
     char buf[256];
     ssize_t nread;
+    
+    // Zvýš počítadlo klientov
+    pthread_mutex_lock(&S->lock);
+    S->active_clients++;
+    printf("[Server] Client connected. Active clients: %d\n", S->active_clients);
+    pthread_mutex_unlock(&S->lock);
+    
     while (1) {
         pthread_mutex_lock(&S->lock);
         bool finished = S->finished;
@@ -128,7 +135,12 @@ static void *client_handler_thread(void *arg)
         }
     }
 
-    printf("[Server] Klient sa odpojil.\n");
+    // Znížiť počítadlo klientov
+    pthread_mutex_lock(&S->lock);
+    S->active_clients--;
+    printf("[Server] Client disconnected. Active clients: %d\n", S->active_clients);
+    pthread_mutex_unlock(&S->lock);
+    
     ipc_close_socket(fd);
     free(ctx);
     return NULL;
@@ -149,6 +161,16 @@ static void *socket_thread(void *arg)
 
     int first_client = 1;
     while (1) {
+        // Kontrola ukončenia: finished == 1 AND active_clients == 0
+        pthread_mutex_lock(&S->lock);
+        bool should_exit = S->finished && (S->active_clients == 0);
+        pthread_mutex_unlock(&S->lock);
+        
+        if (should_exit) {
+            printf("[Server] Simulation finished and no clients connected. Shutting down socket thread.\n");
+            break;
+        }
+        
         pthread_mutex_lock(&S->lock);
         bool finished = S->finished;
         pthread_mutex_unlock(&S->lock);
@@ -262,6 +284,7 @@ int server_run(const ServerConfig *config)
     S.mode = 2;
     S.summary_view = 0;
     S.finished = false;
+    S.active_clients = 0;
     S.client_connected = 0;
 
     printf("Starting simulation:\n");
@@ -338,29 +361,20 @@ int server_run(const ServerConfig *config)
     pthread_create(&sim, NULL, simulation_thread, &S);
     pthread_create(&walk, NULL, walker_thread, &S);
 
-    bool finished_noted = false;
-    struct timespec finish_ts = {0};
+    printf("[Server] Simulation running. Server will shut down when finished AND all clients disconnect.\n");
 
+    // Main loop - čaká na dokončenie simulácie A odpojenie všetkých klientov
     while (1) {
         pthread_mutex_lock(&S.lock);
         bool finished = S.finished;
+        int clients = S.active_clients;
         pthread_mutex_unlock(&S.lock);
-
-        if (finished) {
-            if (!finished_noted) {
-                clock_gettime(CLOCK_MONOTONIC, &finish_ts);
-                finished_noted = true;
-            } else {
-                struct timespec now;
-                clock_gettime(CLOCK_MONOTONIC, &now);
-                long elapsed_ms = (now.tv_sec - finish_ts.tv_sec) * 1000 +
-                                  (now.tv_nsec - finish_ts.tv_nsec) / 1000000;
-                if (elapsed_ms > SERVER_SHUTDOWN_DELAY_MS) {
-                    break;
-                }
-            }
+        
+        if (finished && clients == 0) {
+            printf("[Server] Simulation finished and all clients disconnected. Shutting down...\n");
+            break;
         }
-
+        
         usleep(MAIN_LOOP_INTERVAL_MS * 1000);
     }
 
