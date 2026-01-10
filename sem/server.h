@@ -16,6 +16,7 @@ typedef struct ServerConfig {
     char resume_file[256];
 } ServerConfig;
 
+// Spustí server so zadanou konfiguráciou.
 int server_run(const ServerConfig *config);
 
 #endif // SERVER_H

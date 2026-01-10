@@ -7,6 +7,9 @@
 
 #define SAVED_DIR "saved"
 
+// Svet simulácie: alokácia matíc, načítanie prekážok a ukladanie výsledkov.
+
+// Alokuje 2D polia pre štatistiky a prekážky podľa world_size.
 void allocate_world(SharedState *S)
 {
     S->total_steps = malloc(S->world_size * sizeof(int*));
@@ -20,6 +23,7 @@ void allocate_world(SharedState *S)
     }
 }
 
+// Uvoľní všetky dynamicky alokované matice sveta.
 void free_world(SharedState *S)
 {
     for (int i = 0; i < S->world_size; i++) {
@@ -32,6 +36,7 @@ void free_world(SharedState *S)
     free(S->obstacles);
 }
 
+// Vyplní polia nulami (čistý svet bez prekážok).
 void initialize_world(SharedState *S)
 {
     for (int i = 0; i < S->world_size; i++)
@@ -42,6 +47,7 @@ void initialize_world(SharedState *S)
         }
 }
 
+// Zistí veľkosť sveta zo súboru s prekážkami (prvé číslo v súbore).
 int get_world_size_from_obstacles(const char* filename)
 {
     FILE *file = fopen(filename, "r");
@@ -59,6 +65,7 @@ int get_world_size_from_obstacles(const char* filename)
     return size;
 }
 
+// Načíta maticu prekážok zo súboru a validuje veľkosť.
 int load_obstacles(SharedState *S, const char* filename)
 {
     FILE *file = fopen(filename, "r");
@@ -104,6 +111,7 @@ int load_obstacles(SharedState *S, const char* filename)
     return 1; // Success
 }
 
+// Uloží celý stav simulácie (konfiguráciu, prekážky, štatistiky) do súboru.
 int save_simulation_results(SharedState *S, const char* filename)
 {
     if (!S || !filename || filename[0] == '\0') {
@@ -156,6 +164,7 @@ int save_simulation_results(SharedState *S, const char* filename)
     return 1;
 }
 
+// Obnoví predchádzajúcu simuláciu zo súboru.
 int load_previous_simulation(SharedState *S, const char* filename)
 {
     if (!S || !filename) {

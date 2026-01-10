@@ -6,16 +6,19 @@
 #include "walker.h"
 #include "ipc.h"
 
+// Simulačné vlákna: výpočet štatistík a priebežný pohyb chodca do IPC.
 // Konštanty pre timeouty
 #define WALKER_UPDATE_INTERVAL_MS 300
 #define WALKER_SLEEP_INTERVAL_US 1000
 
+// Orezáva world_size na maximum, ktoré vie IPC niesť.
 static int clamp_world_size(const SharedState *S)
 {
     if (!S) return 0;
     return (S->world_size < IPC_MAX_WORLD) ? S->world_size : IPC_MAX_WORLD;
 }
 
+// Skopíruje sumárne štatistiky (kroky/úspechy) do zdieľanej pamäte.
 static void copy_summary_to_ipc(SharedState *S)
 {
     if (!S || !S->ipc) return;
@@ -28,6 +31,7 @@ static void copy_summary_to_ipc(SharedState *S)
     }
 }
 
+// Zapíše metadáta priebehu do zdieľanej pamäte (replikácie, mód, finished).
 static void sync_progress_to_ipc(SharedState *S)
 {
     if (!S || !S->ipc) return;
@@ -40,6 +44,7 @@ static void sync_progress_to_ipc(SharedState *S)
     S->ipc->finished = S->finished ? 1 : 0;
 }
 
+// Simuluje náhodnú prechádzku z daného bodu a vráti počet krokov alebo -1.
 static int simulate_from(SharedState *S, Walker start)
 {
     Walker w = start;
@@ -62,6 +67,7 @@ static int simulate_from(SharedState *S, Walker start)
     return -1;  // Neúspech - walker nedosiahol stred za max_steps
 }
 
+// Hlavné simulačné vlákno: prechádza všetky počiatočné pozície a akumuluje štatistiky.
 void* simulation_thread(void *arg)
 {
     SharedState *S = arg;
@@ -105,6 +111,7 @@ void* simulation_thread(void *arg)
     return NULL;
 }
 
+// Vlákno, ktoré posúva chodca a synchronizuje jeho stav do IPC.
 void* walker_thread(void *arg)
 {
     SharedState *S = arg;

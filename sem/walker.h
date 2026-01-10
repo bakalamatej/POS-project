@@ -6,6 +6,7 @@ typedef struct Walker {
     int y;
 } Walker;
 
+// Rozhranie pre inicializáciu a pohyb chodca.
 struct SharedState;          
 
 void walker_init(Walker *w, int x, int y);

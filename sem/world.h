@@ -4,6 +4,7 @@
 #define CLEAR_SCREEN() printf("\033[2J\033[H")
 #define MOVE_CURSOR() printf("\033[H")
 
+// Rozhranie pre alokáciu, načítanie a ukladanie sveta simulácie.
 struct SharedState;   
 struct Walker;        
 

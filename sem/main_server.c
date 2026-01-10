@@ -4,6 +4,7 @@
 #include <string.h>
 #include <getopt.h>
 
+// Vstupný bod servera: parsovanie argumentov a spustenie simulácie.
 int main(int argc, char *argv[])
 {
     ServerConfig config;

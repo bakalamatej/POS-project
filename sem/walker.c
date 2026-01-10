@@ -2,12 +2,15 @@
 #include "walker.h"
 #include "simulation.h"
 
+// Pohyb chodca podľa pravdepodobností a rešpektovanie prekážok alebo wrap-aroundu.
+// Inicializuje pozíciu chodca na zadané súradnice.
 void walker_init(Walker *w, int x, int y)
 {
     w->x = x;
     w->y = y;
 }
 
+// Vykoná jeden krok náhodnej prechádzky podľa pravdepodobností a pravidiel sveta.
 void random_walk(SharedState *S, Walker* w)
 {
     double p_up    = S->prob.up;

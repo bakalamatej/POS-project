@@ -31,13 +31,14 @@ typedef struct SocketThreadArgs {
     char *sock_path;
 } SocketThreadArgs;
 
+// Orezá world_size na maximum, ktoré podporuje IPC buffer.
 static int clamp_world_size(const SharedState *S)
 {
     if (!S) return 0;
     return (S->world_size < IPC_MAX_WORLD) ? S->world_size : IPC_MAX_WORLD;
 }
 
-// Základné informácie do IPC (bez veľkých polí)
+// Zapíše základné informácie do IPC (bez veľkých polí).
 static void sync_basic_to_ipc(SharedState *S)
 {
     if (!S || !S->ipc) return;
@@ -58,7 +59,7 @@ static void sync_basic_to_ipc(SharedState *S)
     S->ipc->finished     = S->finished ? 1 : 0;
 }
 
-// Prekážky kopíruj len zriedka (na začiatku alebo pri zmene)
+// Prekážky kopíruj len zriedka (na začiatku alebo pri zmene).
 static void sync_obstacles_to_ipc(SharedState *S)
 {
     if (!S || !S->ipc) return;
@@ -70,7 +71,7 @@ static void sync_obstacles_to_ipc(SharedState *S)
     }
 }
 
-// Štatistiky sú synchronizované zo simulačného vlákna; použijeme len keď treba
+// Štatistiky sa kopírujú z vlákna simulácie podľa potreby.
 static void sync_stats_to_ipc(SharedState *S)
 {
     if (!S || !S->ipc) return;
@@ -83,12 +84,14 @@ static void sync_stats_to_ipc(SharedState *S)
     }
 }
 
+// Pošle textový reťazec na daný socket.
 static void send_str(int fd, const char *msg)
 {
     if (!msg) return;
     write(fd, msg, strlen(msg));
 }
 
+// Vlákno pre jedného klienta: spracuje príkazy MODE/SUMMARY.
 static void *client_handler_thread(void *arg)
 {
     ClientConn *ctx = (ClientConn *)arg;
@@ -138,6 +141,7 @@ static void *client_handler_thread(void *arg)
     return NULL;
 }
 
+// Počúva na UNIX sockete a pre každého klienta spúšťa handler vlákno.
 static void *socket_thread(void *arg)
 {
     SocketThreadArgs *args = (SocketThreadArgs *)arg;
@@ -197,6 +201,7 @@ static void *socket_thread(void *arg)
     return NULL;
 }
 
+// Hlavná funkcia servera: inicializuje stav, IPC, spustí vlákna a uloží výsledky.
 int server_run(const ServerConfig *config)
 {
     if (!config) return 1;

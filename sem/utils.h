@@ -6,6 +6,7 @@
 #include <termios.h>
 #include <stdbool.h>
 
+// Pomocné funkcie pre terminál a bezpečné reťazce.
 // Terminal utilities
 void enable_raw_mode(struct termios *orig);
 void disable_raw_mode(const struct termios *orig);

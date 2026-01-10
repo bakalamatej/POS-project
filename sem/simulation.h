@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include "walker.h"
 
+// Spoločný stav simulácie a rozhranie pre simulačné a vizualizačné vlákna.
 struct IPCShared;
 
 typedef struct {

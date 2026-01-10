@@ -18,6 +18,7 @@
 #include "world.h"
 #include "utils.h"
 
+// Klientská aplikácia: výber servera, načítanie konfigurácie a terminálové zobrazenie simulácie.
 #define RENDER_INTERVAL_MS 100
 #define MAX_SERVERS 20
 #define MAX_FILES 50
@@ -53,6 +54,7 @@ typedef struct {
 
 // ============ IPC HELPERS ============
 
+// Spočíta dostupné servery zo súboru so zoznamom.
 static int count_servers(ServerInfo *servers)
 {
     FILE *f = fopen("/tmp/pos_server_list.txt", "r");
@@ -69,6 +71,7 @@ static int count_servers(ServerInfo *servers)
     return count;
 }
 
+// Vyberie posledný (najnovší) server zo zoznamu.
 static int get_latest_server(char *shm_name, char *sock_path)
 {
     ServerInfo servers[MAX_SERVERS];
@@ -80,6 +83,7 @@ static int get_latest_server(char *shm_name, char *sock_path)
     return 0;
 }
 
+// Interaktívne nechá používateľa zvoliť server na pripojenie.
 static int select_server(char *shm_name, char *sock_path)
 {
     ServerInfo servers[MAX_SERVERS];
@@ -111,6 +115,7 @@ static int select_server(char *shm_name, char *sock_path)
 
 // ============ FILE HELPERS ============
 
+// Vypíše uložené výsledky v priečinku saved/ a naplní zoznam názvov.
 static int list_files(char filenames[][256])
 {
     DIR *dir = opendir(SAVED_DIR);
@@ -133,6 +138,7 @@ static int list_files(char filenames[][256])
     return count;
 }
 
+// Umožní vybrať súbor s uloženou simuláciou.
 static int select_file(char *selected_file)
 {
     char filenames[MAX_FILES][256];
@@ -163,6 +169,7 @@ static int select_file(char *selected_file)
 
 // ============ INPUT HELPERS ============
 
+// Vykreslí hlavičku interaktívneho menu klienta.
 void print_header()
 {
     CLEAR_SCREEN();
@@ -171,6 +178,7 @@ void print_header()
            "==============================\n\n");
 }
 
+// Bezpečne načíta celé číslo z konzoly.
 static int read_int(const char *prompt, int *value)
 {
     printf("%s", prompt);
@@ -179,6 +187,7 @@ static int read_int(const char *prompt, int *value)
     return (ret == 1) ? 0 : -1;
 }
 
+// Načíta tri desatinné čísla (pravdepodobnosti).
 static int read_doubles(const char *prompt, double *a, double *b, double *c)
 {
     printf("%s", prompt);
@@ -187,6 +196,7 @@ static int read_doubles(const char *prompt, double *a, double *b, double *c)
     return (ret == 3) ? 0 : -1;
 }
 
+// Načíta reťazec (napr. názov súboru) z konzoly.
 static int read_string(const char *prompt, char *buf, size_t size)
 {
     printf("%s", prompt);
@@ -197,6 +207,7 @@ static int read_string(const char *prompt, char *buf, size_t size)
     return (ret == 1) ? 0 : -1;
 }
 
+// Načíta reťazec (názov súboru) z konzoly.
 static int get_params(SimParams *p)
 {
     if (!p) return -1;
@@ -241,6 +252,7 @@ static void send_cmd(int fd, const char *cmd)
     if (fd >= 0 && cmd) write(fd, cmd, strlen(cmd));
 }
 
+// Odošle textový príkaz na socket servera.
 static int connect_retry(const char *path)
 {
     for (int i = 0; i < CONNECT_RETRIES; i++) {
@@ -251,6 +263,7 @@ static int connect_retry(const char *path)
     return -1;
 }
 
+// Opakovane sa pokúsi pripojiť k UNIX socketu servera.
 static IPCShared* open_shm_retry(const char *name)
 {
     IPCShared *ipc = NULL;
@@ -263,6 +276,7 @@ static IPCShared* open_shm_retry(const char *name)
 
 // ============ THREADS ============
 
+// Vlákno na zobrazovanie stavu simulácie v termináli.
 static void *render_thread(void *arg)
 {
     ClientCtx *ctx = (ClientCtx *)arg;
@@ -335,6 +349,7 @@ static void *render_thread(void *arg)
     return NULL;
 }
 
+// Vlákno na spracovanie vstupu používateľa počas behu.
 static void *input_thread(void *arg)
 {
     ClientCtx *ctx = (ClientCtx *)arg;
@@ -365,6 +380,7 @@ static void *input_thread(void *arg)
 
 // ============ MAIN ============
 
+// Hlavná slučka klienta: výber servera, spustenie vlákien a čakanie na ukončenie.
 int client_run(void)
 {
     signal(SIGINT, handle_sigint);

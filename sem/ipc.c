@@ -10,6 +10,8 @@
 #include <string.h>
 #include <errno.h>
 
+// Správa zdieľanej pamäte a UNIX socketov pre komunikáciu server-klient.
+// Vytvorí zdieľanú pamäť a vynuluje ju.
 int ipc_create_shared(const char *name, IPCShared **out)
 {
 	if (!name || !out) return -1;
@@ -35,6 +37,7 @@ int ipc_create_shared(const char *name, IPCShared **out)
 	return 0;
 }
 
+// Otvorí existujúcu zdieľanú pamäť (len čítanie alebo aj zápis).
 int ipc_open_shared(const char *name, IPCShared **out, bool writeable)
 {
 	if (!name || !out) return -1;
@@ -52,17 +55,20 @@ int ipc_open_shared(const char *name, IPCShared **out, bool writeable)
 	return 0;
 }
 
+// Odmapuje zdieľanú pamäť z procesu.
 void ipc_close_shared(IPCShared *ptr)
 {
 	if (ptr) munmap(ptr, sizeof(IPCShared));
 }
 
+// Odstráni segment zdieľanej pamäte zo systému.
 int ipc_unlink_shared(const char *name)
 {
 	if (!name) return -1;
 	return shm_unlink(name);
 }
 
+// Vytvorí a začne počúvať na UNIX doménovom sockete.
 int ipc_listen_socket(const char *path)
 {
 	if (!path) return -1;
@@ -89,12 +95,14 @@ int ipc_listen_socket(const char *path)
 	return fd;
 }
 
+// Prijme nové pripojenie na počúvajúcom sockete.
 int ipc_accept_socket(int listen_fd)
 {
 	if (listen_fd < 0) return -1;
 	return accept(listen_fd, NULL, NULL);
 }
 
+// Pripojí sa k UNIX doménovému socketu.
 int ipc_connect_socket(const char *path)
 {
 	if (!path) return -1;
@@ -114,6 +122,7 @@ int ipc_connect_socket(const char *path)
 	return fd;
 }
 
+// Zavrie otvorený socket.
 void ipc_close_socket(int fd)
 {
 	if (fd >= 0) close(fd);
